@@ -175,6 +175,15 @@ Windows):
 
 ## Known issues
 
+- **Overlay buttons stop working when the game window is small** (reported with the `Super+O` pop-out
+  size, 1300x900, in Battlegrounds): the "Comps" button shades when clicked but its panel does not
+  open. Not diagnosed yet. The HDT log shows an `Overlay Visible -> Behind` / `Behind -> Visible` pair
+  at each such click, so the foreground briefly leaves the game while the button is handled.
+- **Overlay disappears after leaving fullscreen** (game fullscreen → windowed): HDT keeps placing the
+  overlay (`Overlay rect set to ...` lines continue, no visibility state change), but Hyprland stops
+  drawing it until the game is restarted. Not diagnosed yet; `hyprctl clients -j` fields `pinned`,
+  `pinFullscreened`, `allowedOverFullscreen` and `mapped` for `HearthstoneOverlay` are the first thing
+  to check while it is gone.
 - **Settings while in game.** The report was: opening HDT's settings while Hearthstone is running
   stops the overlay being placed over the game and it occasionally flickers. Two causes were found and
   fixed (the window hook above, and the class-only Hyprland rule floating/centring the overlay); the
