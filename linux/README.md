@@ -99,8 +99,9 @@ redistributable** and are gitignored — they are fetched fresh at build time, n
 
 ## Known issues
 
-- **Opening HDT's settings while Hearthstone is running breaks the tracker** (Wine/Hyprland only; on
-  Windows the overlay keeps working, sized to the game window). Not yet investigated.
+- **Opening HDT's settings while Hearthstone is running breaks the overlay**: it stops being placed
+  over the game window and occasionally flickers (Wine/Hyprland only; on Windows the overlay keeps
+  working, sized to the game window). Not yet investigated.
 - The overlay re-applies "topmost" about twice a second under Wine (log spam only).
 - Closing the main window hides HDT to the tray rather than quitting.
 
