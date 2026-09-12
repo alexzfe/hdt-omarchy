@@ -1,0 +1,24 @@
+# Build-check for the Linux/Omarchy fork: compiles HDT with the .NET SDK on Linux.
+# Does not publish any binaries, so it never redistributes the closed-source build dependencies.
+name: linux-build
+
+on:
+  push:
+    branches: [omarchy]
+  pull_request:
+    branches: [omarchy]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build (Release)
+        run: linux/build.sh Release
