@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Hearthstone Deck Tracker
+GenericName=Deck Tracker
+Comment=Deck tracker and overlay for Hearthstone (Omarchy/Linux build)
+Exec=@LAUNCHER@
+Terminal=false
+Categories=Game;
+StartupNotify=false

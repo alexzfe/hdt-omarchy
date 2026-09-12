@@ -1,5 +1,11 @@
 # Hearthstone-Deck-Tracker
-[![Build status](https://ci.appveyor.com/api/projects/status/3wow545sjaq9ybji/branch/master?svg=true)](https://ci.appveyor.com/project/azeier/hearthstone-deck-tracker/branch/master)
+
+> **hdt-omarchy** — a Linux fork of Hearthstone Deck Tracker with a working transparent overlay
+> under Wine/Proton (tested on Omarchy / Hyprland). Upstream HDT's overlay renders black on Wayland;
+> this fork fixes that in HDT's own code and adds a `dotnet`-based Linux build. All changes are gated
+> behind a runtime Wine check, so the Windows build is unchanged. **See [`linux/README.md`](linux/README.md)
+> to build, install, and run it on Linux.** Linux-specific work lives on the `omarchy` branch;
+> `master` tracks upstream.
 
 Hearthstone Deck Tracker is an automatic deck tracker and deck manager for Hearthstone.
 

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Launch Hearthstone Deck Tracker inside the Battle.net Wine prefix via umu-launcher + GE-Proton,
+# so it shares a Wine session with Battle.net and Hearthstone (required for HDT to see the game).
+#
+# Installed by linux/install.sh. @HDT_INSTALL_DIR@ is filled in at install time.
+set -e
+
+WINEPREFIX_DIR="${HDT_WINEPREFIX:-$HOME/Games/battlenet}"
+HDT="@HDT_INSTALL_DIR@/HearthstoneDeckTracker.exe"
+
+if [[ ! -f $HDT ]]; then
+  echo "Hearthstone Deck Tracker is not installed at: $HDT" >&2
+  echo "Build and install it with linux/install.sh from the hdt-omarchy checkout." >&2
+  exit 1
+fi
+
+exec env \
+  WINEPREFIX="$WINEPREFIX_DIR" \
+  PROTONPATH="${HDT_PROTONPATH:-GE-Proton}" \
+  GAMEID="${HDT_GAMEID:-umu-battlenet}" \
+  PROTON_VERB=run \
+  umu-run "$HDT" "$@"
