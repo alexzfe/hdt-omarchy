@@ -12,6 +12,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 		public SplashScreenWindow()
 		{
 			InitializeComponent();
+			Wine.ApplyTransparencyWorkaround(this);
 		}
 
 		public void ShowConditional()

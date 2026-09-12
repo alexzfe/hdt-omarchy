@@ -22,6 +22,7 @@ namespace Hearthstone_Deck_Tracker.Utility.Toasts
 		public ToastWindow(UserControl control)
 		{
 			InitializeComponent();
+			Wine.ApplyTransparencyWorkaround(this);
 			ContentControl.Content = control;
 			_forceClose = () => ToastManager.ForceCloseToast(control);
 		}

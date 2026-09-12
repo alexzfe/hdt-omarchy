@@ -227,6 +227,16 @@ namespace Hearthstone_Deck_Tracker.Windows
 
 			InitializeComponent();
 
+			if(Wine.IsWine)
+			{
+				// See Utility/Wine.cs. An alpha of 1/255 keeps every pixel inside Wine's layered
+				// window shape (alpha 0 would render as opaque black under XWayland), and never
+				// activating on Show() lets Wine keep this window override-redirect, so the
+				// compositor stacks it above the game without tiling or focusing it.
+				Wine.ApplyTransparencyWorkaround(this);
+				ShowActivated = false;
+			}
+
 			_mulliganNotificationBehavior = new OverlayElementBehavior(MulliganNotificationPanel)
 			{
 				GetRight = () => 0,
@@ -635,7 +645,9 @@ namespace Hearthstone_Deck_Tracker.Windows
 			Top = top;
 			Left = left;
 			Width = width;
-			Height = height;
+			// Under Wine a popup covering the whole monitor is handed to the window manager;
+			// staying a pixel short keeps it override-redirect. The canvas keeps the full size.
+			Height = Wine.AvoidFullScreenHeight(top, left, width, height);
 			CanvasInfo.Width = width;
 			CanvasInfo.Height = height;
 		}
