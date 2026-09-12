@@ -3,8 +3,8 @@
 Review of the fork's additions as of `cfd18843` plus the session-5 diagnostics. Tick items as they
 land; keep each fix a small commit so `omarchy` can take them one by one.
 
-**Status (2026-09-12, session 6):** sections A, B and D are done except where noted; C needs the
-user with the real game; E is in progress. Commits are listed next to each item. Everything on this
+**Status (2026-09-12, session 6):** sections A, B, D and E are done except where noted; C needs the
+user with the real game. Commits are listed next to each item. Everything on this
 branch builds (`linux/build.sh Release`, `dotnet build HDTTests`), passes shellcheck and the install
 smoke test. The Windows CI job has not run yet.
 
@@ -87,18 +87,18 @@ smoke test. The Windows CI job has not run yet.
       compiled there. (`d6989bd3`)
 - [x] `windows-build.yml` restores upstream's build + MSTest steps (HearthWatcher.Test, HDTTests).
       **Unverified until its first run on GitHub**: watch the Actions tab after the next push. (`d6989bd3`)
-- [ ] Run the MSTest suites locally under Wine (vstest.console in the prefix) as a fallback when
-      the Windows job is unavailable; session 6 tried it, result in the project README section 0.
+- [x] `linux/tests/run-tests-wine.sh` runs the MSTest suites inside the Wine prefix with
+      vstest.console (Microsoft.TestPlatform downloaded once to the cache). Session 6: the 8
+      WineTests passed there (`/Tests:WineTests`); the full suites have not been run this way yet.
 
 ## E. Docs
 
-- [ ] `linux/README.md` intro says no window-manager rules are needed; four are installed. Reword.
-- [ ] `linux/README.md` "Known issues": fullscreen exit fixed (session 5); tabs dead only at the
-      pop-out size; X stacking paragraph (session hdt-linux-fe is writing this).
-- [ ] Project README section 0 status table: reconcile with the session-4/5/6 results.
-- [ ] State the supported target explicitly: Omarchy / Hyprland / XWayland via umu + GE-Proton.
-- [ ] Document install.sh's environment variables and `--uninstall` in `linux/README.md`.
-- [ ] Bench gotchas from session 5 (nested legacy config ignores Lua dispatchers silently; wlrctl
-      keyboard input reaches Wine as vk=29, use `DISPLAY=:1 xdotool key`; with fakehs the Core loop
-      runs only every ~20 s; python-xlib `query_pointer().child` on DISPLAY=:0 is the reliable
-      "who gets this click" probe) into the project README section 2c.
+- [x] `linux/README.md` intro no longer claims that no window-manager rules are needed.
+- [x] `linux/README.md` "Known issues" and the "Overlay buttons and X stacking" section (`b6263a0c`,
+      session hdt-linux-fe).
+- [x] Project README section 0, status table, section 2f and bench gotchas (session hdt-linux-fe,
+      not in git: `~/Projects/hdt-linux/README.md`).
+- [x] Supported target stated in the `linux/README.md` intro: Omarchy / Hyprland / XWayland via
+      umu + GE-Proton; X11-driver gate explained.
+- [x] `install.sh` environment variables, `VERSION`, marker and `--uninstall` documented; new
+      "Development: tests, CI, hardening status" section.

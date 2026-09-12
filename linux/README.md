@@ -1,12 +1,19 @@
 # Hearthstone Deck Tracker on Linux (hdt-omarchy)
 
 This is a fork of [Hearthstone Deck Tracker](https://github.com/HearthSim/Hearthstone-Deck-Tracker)
-that runs on Linux under Wine/Proton with a **working transparent in-game overlay**, tested on
-Omarchy (Hyprland / XWayland). Upstream HDT is a Windows/WPF app; its overlay renders as an opaque
-black rectangle under Wine on Wayland. This fork fixes that in HDT's own code, with no window-manager
-rules required, and adds a `dotnet`-based Linux build.
+that runs on Linux under Wine/Proton with a **working transparent in-game overlay**. Upstream HDT is
+a Windows/WPF app; its overlay renders as an opaque black rectangle under Wine on Wayland. This fork
+fixes that in HDT's own code, adds a `dotnet`-based Linux build, and ships the four Hyprland window
+rules the tracker needs on Omarchy (installed by `install.sh`, see below).
 
-All changes are gated behind a runtime Wine check, so the Windows build and behaviour are unchanged.
+**Supported target:** Omarchy (Hyprland on Wayland, XWayland) with the Battle.net prefix run through
+umu-launcher and GE-Proton. That is the only setup this fork is tested on. The code paths that assume
+the X11 window model and Hyprland's handling of it are gated on Wine's X11 driver being loaded
+(`Wine.UsesX11Driver`); under Wine's own Wayland or macOS drivers HDT falls back to upstream window
+handling, and other X11 compositors (KWin, Mutter, ...) are untested.
+
+All changes are gated behind runtime Wine checks, so the Windows build and behaviour are unchanged;
+the `windows-build` CI job builds and tests on Windows to keep it that way.
 
 ## Contents
 
@@ -23,7 +30,9 @@ All changes are gated behind a runtime Wine check, so the Windows build and beha
   works; add it with `export PATH="$HOME/.dotnet:$PATH"`.
 - A **Battle.net Wine prefix** with Hearthstone installed, launched via umu-launcher + a recent
   GE-Proton (wine 10/11 Staging). On Omarchy this is what `omarchy-launch-battlenet` sets up.
-- `curl`, `git`, `unzip`, `rsync`.
+- `curl`, `git`, `unzip`, `rsync`; `umu-launcher` at run time.
+- Optional: a C compiler with the X11 headers (`libx11`) for the X error shim, plus `gcc -m32` with
+  `lib32-libx11` for its 32-bit half.
 
 ## Build & install
 
@@ -45,6 +54,19 @@ linux/install.sh
 
 Then launch HDT (from the menu or `launch-hdt`), start Battle.net, and Play Hearthstone. HDT and the
 game share one Wine session, so HDT sees the game and the overlay tracks it.
+
+`install.sh` also writes a `VERSION` file (git describe, branch, date) next to the binaries; HDT logs
+it at startup as `hdt-omarchy build: ...`. It never deletes a directory it did not create itself
+(the install directory carries a marker file), and `install.sh --uninstall` removes everything it
+installed, including the Hyprland require line, and leaves the Wine prefix alone.
+
+| Variable | Effect |
+|---|---|
+| `HDT_INSTALL_DIR` | install directory for the binaries |
+| `HDT_SKIP_BUILD=1` | install the existing build output instead of building (`HDT_BUILD_OUTPUT` selects it) |
+| `HDT_SKIP_SHIM=1` | do not build/install the X error shim |
+| `HDT_NO_HYPR_RELOAD=1` | do not run `hyprctl reload` after installing the Hyprland rules |
+| `OMARCHY_PATH` | Omarchy installation to take the Lua module loader from (default `~/.local/share/omarchy`, then `/usr/share/omarchy`) |
 
 To just build without installing: `linux/build.sh [Debug|Release]`. Output lands in
 `Hearthstone Deck Tracker/bin/x64/<Config>/`.
@@ -254,6 +276,17 @@ fall through the transparent overlay to the game, while clicks on visible HDT pa
 
 The same transparent-background fix is applied to HDT's splash and toast windows so they don't render
 black either. See `Utility/Wine.cs` for the (Wine-only) implementation.
+
+## Development: tests, CI, hardening status
+
+- `HDTTests/Utility/WineTests.cs` covers the pure parts of `Wine.cs` (the per-monitor full-screen
+  clamp, the detection override). The MSTest suites need Windows to run: the `windows-build` workflow
+  runs them on GitHub, and `linux/tests/run-tests-wine.sh` runs them inside the Wine prefix with
+  vstest (session 6: all 8 Wine tests pass there).
+- `linux-build` compiles HDT and HDTTests on Linux, shellchecks the scripts, runs
+  `linux/tests/install-smoke.sh` (install.sh against a throwaway HOME) and compiles the shim.
+- `linux/HARDENING.md` is the production-readiness checklist: what was found in review, what has
+  landed, and which real-game checks are still open.
 
 ## Relationship to upstream
 
