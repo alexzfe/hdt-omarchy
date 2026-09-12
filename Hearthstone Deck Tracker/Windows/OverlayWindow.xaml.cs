@@ -584,6 +584,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 		private DispatcherTimer? _gameRectPoller;
 		private System.Drawing.Rectangle _lastPolledGameRect;
 		private bool _deferredPositionLogged;
+		private IntPtr _ownedGameWindow;
 
 		internal void HookGameWindow()
 		{
@@ -592,6 +593,14 @@ namespace Hearthstone_Deck_Tracker.Windows
 			var thread = User32.GetHearthstoneWindowThread();
 			if(thread.ProcId == 0)
 				return;
+			// Under Wine the game window becomes the overlay's owner so the compositor stacks the
+			// overlay with the game (see Wine.SetOwner). Cleared again in UnhookGameWindow.
+			if(Wine.IsWine)
+			{
+				_ownedGameWindow = User32.GetHearthstoneWindow();
+				Wine.SetOwner(this, _ownedGameWindow);
+				Log.Info("Game window set as the overlay owner");
+			}
 			const uint dwFlagsOutOfContextIgnoreSelf = 0x0000 | 0x001 | 0x002;
 			const uint eventObjectLocationchange = 0x800B;
 			_windowHook = User32.SetWinEventHook(eventObjectLocationchange, eventObjectLocationchange, IntPtr.Zero,
@@ -612,8 +621,22 @@ namespace Hearthstone_Deck_Tracker.Windows
 			_gameRectPoller = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
 			_gameRectPoller.Tick += (_, _) =>
 			{
-				if(User32.GetHearthstoneWindow() == IntPtr.Zero)
+				var gameWindow = User32.GetHearthstoneWindow();
+				if(gameWindow == IntPtr.Zero)
 					return;
+				if(gameWindow != _ownedGameWindow)
+				{
+					// A new game window (quick restart): re-own and remap so Wine refreshes the
+					// WM_TRANSIENT_FOR hint, which it only writes when the window is mapped.
+					Wine.SetOwner(this, gameWindow);
+					_ownedGameWindow = gameWindow;
+					if(IsVisible)
+					{
+						Log.Info("Game window changed, remapping the overlay under the new owner");
+						Hide();
+						Show();
+					}
+				}
 				var rect = User32.GetHearthstoneRect(true);
 				if(rect == _lastPolledGameRect)
 					return;
@@ -637,6 +660,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 
 		internal void UnhookGameWindow()
 		{
+			Wine.SetOwner(this, IntPtr.Zero);
+			_ownedGameWindow = IntPtr.Zero;
 			if(_gameRectPoller != null)
 			{
 				_gameRectPoller.Stop();

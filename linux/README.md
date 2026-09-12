@@ -71,17 +71,31 @@ the class `steam_app_hdt`, and Hearthstone/Battle.net inherit it when HDT launch
   the WPF window to a tile breaks its layout.
 - **Hearthstone floats** (`^Hearthstone$`): Hyprland tiles the game in windowed mode either way.
 - **Battle.net floats** (`^Battle\.net`): launcher and login window.
-- **The overlay is pinned** (`^HearthstoneOverlay$`), and nothing else. Hyprland draws pinned windows
-  in a final pass above every other window. Without the pin, two things hide the overlay even though
-  HDT places it correctly: a *pinned* game (Omarchy's `Super+O` "pop out" floats and pins the active
-  window) is drawn in that final pass, above the unpinned overlay; and every time a window goes
-  fullscreen on the workspace, Hyprland clears an "allowed over fullscreen" flag on all unpinned
-  windows there, which an override-redirect window only regains when its X geometry changes by more
-  than 2 px (a fullscreen re-entry that moves the overlay by 2 px or less leaves it hidden). Pinned
-  windows are exempt from both. The overlay is click-through, and HDT hides it (opacity 0) whenever
-  the game is not focused, so pinning does not show it on other workspaces in practice. Do **not** add
-  `center`/`size` (they displace the override-redirect window) or `no_focus` (it stops keyboard focus
-  from reaching the game underneath).
+- **The overlay is pinned and excluded from focus** (`^HearthstoneOverlay$`: `pin`, `no_focus`,
+  nothing else). Both are needed:
+  - `pin`: Hyprland draws pinned windows in a final pass above every other window. Without it a
+    *pinned* game (Omarchy's `Super+O` "pop out" floats and pins the active window) is drawn above
+    the overlay, and every fullscreen transition clears an "allowed over fullscreen" flag on all
+    unpinned windows on the workspace, which an override-redirect window only regains when its X
+    geometry changes by more than 2 px. Pinned windows are exempt from both.
+  - `no_focus`: Hyprland's window hit test works on window boxes and ignores X11 input shapes, so a
+    pinned overlay covering the game would otherwise be what the pointer "hits": focus-follows-mouse
+    activates it, `Super+O` pops *it* out, `Super`+drag moves it, and border resizing of the game
+    stops working (Hyprland refuses resize handles when the window under the pointer is
+    override-redirect). With `no_focus` the hit test skips the overlay and the game underneath gets
+    all of that; keyboard focus reaches the game, and clicks still reach the overlay's buttons because
+    Wine gives the click-through overlay an empty X11 input shape, which Xwayland honours.
+  The overlay is click-through, and HDT hides it (opacity 0) whenever the game is not focused, so
+  pinning does not show it on other workspaces in practice. Do **not** add `center`/`size` (they
+  displace the override-redirect window).
+- **Why the overlay stays above a pinned game after clicks** (HDT source, not a rule): Hyprland raises
+  a floating window on every click, and among pinned windows the last-raised one is drawn on top,
+  so a pinned game would cover the pinned overlay after its first click. Under Wine the overlay now
+  makes the game window its Win32 *owner* when it hooks the game (`Wine.SetOwner`); Wine writes that
+  as the X11 `WM_TRANSIENT_FOR` hint when the overlay is mapped, and Hyprland moves an X11 window
+  together with its transients on every raise, so the game can never end up above its overlay. If the
+  game window handle changes (quick restart), the overlay re-owns and remaps itself (log:
+  `Game window changed, remapping the overlay under the new owner`).
 
 Plain (non-Lua) Hyprland config equivalent:
 
@@ -89,7 +103,7 @@ Plain (non-Lua) Hyprland config equivalent:
 windowrule = float on, center on, size 1400 900, match:class ^steam_app_hdt$, match:title ^Hearthstone Deck Tracker$
 windowrule = float on, center on, match:class ^steam_app_(hdt|battlenet)$, match:title ^Hearthstone$
 windowrule = float on, center on, match:class ^steam_app_(hdt|battlenet)$, match:title ^Battle\.net
-windowrule = pin on, match:class ^steam_app_hdt$, match:title ^HearthstoneOverlay$
+windowrule = pin on, no_focus on, match:class ^steam_app_hdt$, match:title ^HearthstoneOverlay$
 ```
 
 - **Icon.** The desktop entry uses the `hearthstone-deck-tracker` icon that `install.sh` installs, and

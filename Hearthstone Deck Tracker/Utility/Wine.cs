@@ -134,6 +134,26 @@ namespace Hearthstone_Deck_Tracker.Utility
 			});
 		}
 
+		/// <summary>
+		/// Makes <paramref name="owner"/> the Win32 owner of <paramref name="window"/> (or clears the owner
+		/// when it is zero). Wine turns the owner into the X11 WM_TRANSIENT_FOR hint when the window is
+		/// next mapped, and Wayland compositors then keep the window stacked with its owner: whenever the
+		/// game window is raised (clicked), the overlay is raised with it instead of ending up underneath.
+		/// </summary>
+		public static void SetOwner(Window window, IntPtr owner)
+		{
+			if(!IsWine)
+				return;
+			try
+			{
+				new WindowInteropHelper(window).Owner = owner;
+			}
+			catch(Exception e)
+			{
+				Log.Warn($"Could not set the window owner: {e.Message}");
+			}
+		}
+
 		private const uint GwOwner = 4;
 
 		[DllImport("user32.dll")]
