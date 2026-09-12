@@ -82,13 +82,17 @@
        core MSBuild cannot run ResGen.exe, so non-string resources go through the preserialized path. -->
   <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+    <HdtStringsResGenAsTool>false</HdtStringsResGenAsTool>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(HdtStringsResGenAsTool)' == ''">
+    <HdtStringsResGenAsTool>true</HdtStringsResGenAsTool>
   </PropertyGroup>
   <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
     <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
   </ItemGroup>
 
   <Target Name="GenerateDesignerFiles">
-    <GenerateResource ExecuteAsTool="false" SdkToolsPath="$(TargetFrameworkSDKToolsDirectory)" Sources="Properties/Strings.resx" StronglyTypedLanguage="C#" StronglyTypedClassName="Strings" StronglyTypedNamespace="Hearthstone_Deck_Tracker.Properties" StronglyTypedFileName="Properties/Strings.Designer.cs" OutputResources="Hearthstone_Deck_Tracker.Properties.Strings.resources" PublicClass="true" />
+    <GenerateResource ExecuteAsTool="$(HdtStringsResGenAsTool)" SdkToolsPath="$(TargetFrameworkSDKToolsDirectory)" Sources="Properties/Strings.resx" StronglyTypedLanguage="C#" StronglyTypedClassName="Strings" StronglyTypedNamespace="Hearthstone_Deck_Tracker.Properties" StronglyTypedFileName="Properties/Strings.Designer.cs" OutputResources="Hearthstone_Deck_Tracker.Properties.Strings.resources" PublicClass="true" />
     <Delete Files="Hearthstone_Deck_Tracker.Properties.Strings.resources" />
   </Target>
 
