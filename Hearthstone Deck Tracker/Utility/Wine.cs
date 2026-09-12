@@ -248,6 +248,38 @@ namespace Hearthstone_Deck_Tracker.Utility
 			}
 		}
 
+		/// <summary>
+		/// Puts <paramref name="window"/> at the top of the X11 stacking order without activating it.
+		/// The X server hands each click to the topmost X window under the pointer that accepts input,
+		/// whatever order the compositor draws windows in. Hyprland restacks a managed X11 window to the
+		/// top whenever it activates it (XWaylandManager activateSurface), so after the game is clicked,
+		/// dragged or focused the overlay sits below it in X: still drawn on top (pinned), hover works,
+		/// but clicks on its buttons go to the game. Evidence (2026-09-12, real game): a query_pointer
+		/// probe showed the order flip, and Battlegrounds tab clicks were logged only after this raise
+		/// was added. A single SetWindowPos(HWND_TOPMOST) is a no-op when the window is already topmost
+		/// (win32u adds SWP_NOZORDER), so the window goes non-topmost first to make the second call a
+		/// real z-order change that Wine emits as XConfigureWindow(Above). Skipped while the window is
+		/// the active window, when a SetWindowPos would let Wine turn it into a managed window.
+		/// </summary>
+		public static void RaiseWithoutActivating(Window window)
+		{
+			if(!UsesX11Driver)
+				return;
+			var hwnd = new WindowInteropHelper(window).Handle;
+			if(hwnd == IntPtr.Zero || IsActiveWindow(hwnd))
+				return;
+			const uint flags = SwpNoSize | SwpNoMove | SwpNoActivate | SwpNoOwnerZOrder;
+			User32.SetWindowPos(hwnd, HwndNoTopmost, 0, 0, 0, 0, flags);
+			User32.SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, flags);
+		}
+
+		private static readonly IntPtr HwndTopmost = new(-1);
+		private static readonly IntPtr HwndNoTopmost = new(-2);
+		private const uint SwpNoSize = 0x0001;
+		private const uint SwpNoMove = 0x0002;
+		private const uint SwpNoActivate = 0x0010;
+		private const uint SwpNoOwnerZOrder = 0x0200;
+
 		/// <summary>Handle, title, class, process and owner of a window, for diagnostic log lines.</summary>
 		public static string DescribeWindow(IntPtr hwnd)
 		{

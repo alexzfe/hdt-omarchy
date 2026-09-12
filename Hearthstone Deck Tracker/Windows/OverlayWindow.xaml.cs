@@ -664,6 +664,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 				Log.Debug($"Game window moved to {rect}, updating overlay position");
 				_lastPolledGameRect = rect;
 				UpdatePosition();
+				// moving or resizing the game restacks it above the overlay in X, see Wine.RaiseWithoutActivating
+				Wine.RaiseWithoutActivating(this);
 			};
 			_gameRectPoller.Start();
 		}
@@ -752,7 +754,11 @@ namespace Hearthstone_Deck_Tracker.Windows
 			if(clickthrough)
 				User32.SetWindowExStyle(hwnd, User32.WsExTransparent);
 			else
+			{
 				User32.RemoveWindowExStyle(hwnd, User32.WsExTransparent);
+				// the pointer is over an overlay button, so X has to hand the click to the overlay
+				Wine.RaiseWithoutActivating(this);
+			}
 			return true;
 		}
 

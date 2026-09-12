@@ -67,6 +67,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 		public void OnHearthstoneFocused()
 		{
 			Update(true);
+			// the compositor restacks the game above the overlay in X when it focuses it
+			Wine.RaiseWithoutActivating(this);
 
 			if(_game.CurrentMode == Mode.BACON)
 			{
