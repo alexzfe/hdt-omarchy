@@ -92,6 +92,32 @@ namespace Hearthstone_Deck_Tracker.Utility
 			return height;
 		}
 
+		/// <summary>
+		/// True when running under Wine and the foreground window is <paramref name="hwnd"/> or a
+		/// window owned (directly or through other owners) by it, such as a WPF popup or tooltip.
+		/// </summary>
+		public static bool IsForegroundOwnedBy(IntPtr hwnd)
+		{
+			if(!IsWine || hwnd == IntPtr.Zero)
+				return false;
+			var window = GetForegroundWindow();
+			for(var i = 0; i < 8 && window != IntPtr.Zero; i++)
+			{
+				if(window == hwnd)
+					return true;
+				window = GetWindow(window, GwOwner);
+			}
+			return false;
+		}
+
+		private const uint GwOwner = 4;
+
+		[DllImport("user32.dll")]
+		private static extern IntPtr GetForegroundWindow();
+
+		[DllImport("user32.dll")]
+		private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
 		[DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
 		private static extern IntPtr GetModuleHandle(string lpModuleName);
 

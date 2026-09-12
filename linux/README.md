@@ -61,9 +61,13 @@ still shares the game's Wine session.
   WPF window to a tile breaks its layout. The in-game overlay is unaffected: it is an
   override-redirect X11 window that the compositor never manages. Add to `~/.config/hypr/hyprland.lua`:
   ```lua
-  o.window("^steam_app_hdt$", { float = true, center = true, size = { 1400, 900 } })
+  o.window({ class = "^steam_app_hdt$", title = "^Hearthstone Deck Tracker$" }, { float = true, center = true, size = { 1400, 900 } })
   ```
-  (plain Hyprland config: `windowrule = float, match:class:^steam_app_hdt$` plus `center` / `size`).
+  (plain Hyprland config: `windowrule = float on, match:class ^steam_app_hdt$, match:title ^Hearthstone Deck Tracker$`
+  plus `center on` / `size 1400 900` with the same matchers). Match the **title** as well as the class:
+  the overlay window (`HearthstoneOverlay`) has the same class, and a class-only rule also floats,
+  resizes and centres the override-redirect overlay in the compositor's view, leaving it drawn away
+  from the game window until the game next moves.
 - **Icon.** The desktop entry uses the `hearthstone-deck-tracker` icon that `install.sh` installs, and
   `StartupWMClass=steam_app_hdt` lets bars and docks match the running window to it.
 
@@ -97,12 +101,38 @@ HDT-Localization strings. On Windows the upstream `Bootstrap` project downloads 
 `linux/fetch-deps.sh` does the same from `https://libs.hearthsim.net/hdt/`. These libraries are **not
 redistributable** and are gitignored — they are fetched fresh at build time, never committed.
 
+## Overlay tracking and background handling under Wine
+
+Three more Wine/Wayland differences are handled in `OverlayWindow` (all Wine-gated or harmless on
+Windows):
+
+- **The overlay never followed the game window.** HDT tracks the game window with an out-of-context
+  `SetWinEventHook` on the game's thread without a module handle. Windows allows that; wineserver
+  rejects it (`server/hook.c`, `set_hook`: "module is optional only if hook is in current process"),
+  so the hook handle is `NULL` and no `EVENT_OBJECT_LOCATIONCHANGE` ever arrives. Any later move or
+  resize of the game window (fullscreen toggles, resolution changes, the window being restored after
+  losing focus) left the overlay where it was. The overlay now falls back to polling the game
+  rectangle every 250 ms when the hook cannot be installed; the log says
+  `Could not hook the Hearthstone window, polling its position instead`.
+- **"Hide overlay when Hearthstone is in the background" did nothing.** On Windows that setting sends
+  the overlay behind the game window. Hyprland draws override-redirect X11 windows above everything,
+  so the overlay stayed on top, including over HDT's own settings window. Under Wine the overlay now
+  hides its content (opacity 0) while the game is in the background and shows it again when the game
+  is focused. Note that Hyprland's default focus-follows-mouse means merely hovering HDT's floating
+  main window over the game counts as "background" until the pointer returns to the game.
+- **Focus on the overlay or its popups is not "background".** Focus given to the overlay window
+  itself, or to a tooltip/popup it owns, no longer counts as Hearthstone losing the foreground, which
+  avoided a hide/show cycle on every hover.
+
 ## Known issues
 
-- **Opening HDT's settings while Hearthstone is running breaks the overlay**: it stops being placed
-  over the game window and occasionally flickers (Wine/Hyprland only; on Windows the overlay keeps
-  working, sized to the game window). Not yet investigated.
-- The overlay re-applies "topmost" about twice a second under Wine (log spam only).
+- **Settings while in game.** The report was: opening HDT's settings while Hearthstone is running
+  stops the overlay being placed over the game and it occasionally flickers. Two causes were found and
+  fixed (the window hook above, and the class-only Hyprland rule floating/centring the overlay); the
+  scenario now behaves in an isolated test bench with a fake game window, but has not been re-tested
+  against the real game yet.
+- Under Wine, `WS_EX_TOPMOST` is cleared on the overlay from time to time; HDT re-applies it and
+  logs `Overlay is topmost after 2 tries` (log spam only; the compositor keeps the overlay on top anyway).
 - Closing the main window hides HDT to the tray rather than quitting.
 
 ## One-time Wine prefix setup

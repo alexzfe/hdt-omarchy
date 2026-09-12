@@ -581,9 +581,12 @@ namespace Hearthstone_Deck_Tracker.Windows
 		}
 
 		private IntPtr _windowHook = IntPtr.Zero;
+		private DispatcherTimer? _gameRectPoller;
+		private System.Drawing.Rectangle _lastPolledGameRect;
+
 		internal void HookGameWindow()
 		{
-			if(_windowHook != IntPtr.Zero)
+			if(_windowHook != IntPtr.Zero || _gameRectPoller != null)
 				return;
 			var thread = User32.GetHearthstoneWindowThread();
 			if(thread.ProcId == 0)
@@ -592,10 +595,40 @@ namespace Hearthstone_Deck_Tracker.Windows
 			const uint eventObjectLocationchange = 0x800B;
 			_windowHook = User32.SetWinEventHook(eventObjectLocationchange, eventObjectLocationchange, IntPtr.Zero,
 				_winEventCallback, thread.ProcId, thread.ThreadId, dwFlagsOutOfContextIgnoreSelf);
+			if(_windowHook != IntPtr.Zero)
+				return;
+
+			// Without the hook the overlay would never follow the game window again. This happens under
+			// Wine, whose server refuses an out-of-context hook on another process's thread when no module
+			// handle is given. Fall back to watching the window rectangle.
+			Log.Warn("Could not hook the Hearthstone window, polling its position instead");
+			StartGameRectPolling();
+		}
+
+		private void StartGameRectPolling()
+		{
+			_lastPolledGameRect = User32.GetHearthstoneRect(true);
+			_gameRectPoller = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
+			_gameRectPoller.Tick += (_, _) =>
+			{
+				if(User32.GetHearthstoneWindow() == IntPtr.Zero)
+					return;
+				var rect = User32.GetHearthstoneRect(true);
+				if(rect == _lastPolledGameRect)
+					return;
+				_lastPolledGameRect = rect;
+				UpdatePosition();
+			};
+			_gameRectPoller.Start();
 		}
 
 		internal void UnhookGameWindow()
 		{
+			if(_gameRectPoller != null)
+			{
+				_gameRectPoller.Stop();
+				_gameRectPoller = null;
+			}
 			if(_windowHook == IntPtr.Zero)
 				return;
 			User32.UnhookWinEvent(_windowHook);

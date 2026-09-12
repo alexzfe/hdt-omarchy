@@ -332,7 +332,10 @@ namespace Hearthstone_Deck_Tracker.Windows
 
 		public void UpdateVisibility()
 		{
-			var isForeground = User32.IsHearthstoneInForeground();
+			// Under Wine, focus given to the overlay or one of its popups (tooltips etc.) must not count as
+			// the game going into the background, or the overlay would blink on every hover.
+			var isForeground = User32.IsHearthstoneInForeground()
+			                   || Wine.IsForegroundOwnedBy(new WindowInteropHelper(this).Handle);
 			// minimized uses the opacity-0 path rather than moving the window: DWM stops
 			// producing frames for offscreen windows, which would freeze OBS capture. In
 			// place with opacity 0 the capture stays connected (transparent frames) and
@@ -351,6 +354,11 @@ namespace Hearthstone_Deck_Tracker.Windows
 			ShowOverlay(contentVisible);
 			if(updatePosition)
 				UpdatePosition();
+
+			// Wine's override-redirect overlay is drawn above every other window by Wayland compositors,
+			// so sending it behind the game does nothing there; hide the content instead.
+			if(Wine.IsWine && newState == OverlayZState.Behind)
+				Opacity = 0;
 
 			if(newState != _overlayZState)
 			{
