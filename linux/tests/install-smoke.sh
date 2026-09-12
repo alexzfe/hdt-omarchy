@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Smoke test for linux/install.sh: runs it against a throwaway HOME with a fake build output and a
+# fake Omarchy loader, and checks the files it writes, its idempotence, the delete guard, the
+# no-Omarchy path and --uninstall. No build, no compositor, no shim compile.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+INSTALL="$REPO_ROOT/linux/install.sh"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+fail() { echo "FAIL: $*" >&2; exit 1; }
+count_require() { grep -cF 'hypr.hearthstone-deck-tracker' "$1" || true; }
+
+export HOME="$TMP/home"
+mkdir -p "$HOME/.config/hypr"
+unset XDG_CONFIG_HOME HYPRLAND_INSTANCE_SIGNATURE HDT_INSTALL_DIR
+FAKE_OUT="$TMP/out"; mkdir -p "$FAKE_OUT"; echo fake > "$FAKE_OUT/HearthstoneDeckTracker.exe"
+FAKE_OMARCHY="$TMP/omarchy"; mkdir -p "$FAKE_OMARCHY/default/hypr"; : > "$FAKE_OMARCHY/default/hypr/require_optional.lua"
+echo '-- user config' > "$HOME/.config/hypr/hyprland.lua"
+export HDT_SKIP_BUILD=1 HDT_BUILD_OUTPUT="$FAKE_OUT" HDT_SKIP_SHIM=1 HDT_NO_HYPR_RELOAD=1 OMARCHY_PATH="$FAKE_OMARCHY"
+
+DEST="$HOME/.local/share/hearthstone-deck-tracker/app"
+LAUNCHER="$HOME/.local/bin/launch-hdt"
+DESKTOP="$HOME/.local/share/applications/hearthstone-deck-tracker.desktop"
+ICON="$HOME/.local/share/icons/hicolor/256x256/apps/hearthstone-deck-tracker.png"
+RULES="$HOME/.config/hypr/hearthstone-deck-tracker.lua"
+MAIN="$HOME/.config/hypr/hyprland.lua"
+
+echo "1. fresh install"
+"$INSTALL" > "$TMP/install1.log"
+[ -f "$DEST/HearthstoneDeckTracker.exe" ] || fail "binary not installed"
+[ -f "$DEST/.hdt-omarchy-install" ] || fail "marker missing"
+[ -s "$DEST/VERSION" ] || fail "VERSION missing"
+[ -x "$LAUNCHER" ] || fail "launcher missing or not executable"
+grep -qF "$DEST/HearthstoneDeckTracker.exe" "$LAUNCHER" || fail "launcher does not point at the install dir"
+grep -q '@HDT_INSTALL_DIR@' "$LAUNCHER" && fail "launcher placeholder not substituted"
+[ -f "$DESKTOP" ] || fail "desktop entry missing"
+grep -qF "Exec=$LAUNCHER" "$DESKTOP" || fail "desktop entry Exec wrong"
+[ -f "$ICON" ] || fail "icon missing"
+[ -f "$RULES" ] || fail "hyprland rules file missing"
+[ "$(count_require "$MAIN")" = 1 ] || fail "expected exactly one require line, got $(count_require "$MAIN")"
+grep -q -- '-- user config' "$MAIN" || fail "user config content lost"
+[ "$(ls "$MAIN".bak.* | wc -l)" = 1 ] || fail "expected one backup of hyprland.lua"
+grep -qF "appended to $MAIN" "$TMP/install1.log" || fail "install did not report the appended line"
+
+echo "2. second install is idempotent"
+"$INSTALL" > /dev/null
+[ "$(count_require "$MAIN")" = 1 ] || fail "require line duplicated on re-install"
+[ "$(ls "$MAIN".bak.* | wc -l)" = 1 ] || fail "re-install made another backup"
+[ -f "$DEST/.hdt-omarchy-install" ] || fail "marker lost on re-install"
+
+echo "3. refuses to wipe a directory it did not create"
+FOREIGN="$TMP/foreign"; mkdir -p "$FOREIGN"; echo keep > "$FOREIGN/keep"
+if HDT_INSTALL_DIR="$FOREIGN" "$INSTALL" > /dev/null 2>&1; then fail "installed over a foreign non-empty directory"; fi
+[ -f "$FOREIGN/keep" ] || fail "foreign directory was wiped"
+
+echo "4. installs into an empty directory given explicitly"
+EMPTY="$TMP/empty"; mkdir -p "$EMPTY"
+HDT_INSTALL_DIR="$EMPTY" "$INSTALL" > /dev/null
+[ -f "$EMPTY/.hdt-omarchy-install" ] || fail "explicit empty install dir not used"
+
+echo "5. no Omarchy loader: hyprland.lua is left alone"
+HOME2="$TMP/home2"; mkdir -p "$HOME2/.config/hypr"; echo '-- plain lua config' > "$HOME2/.config/hypr/hyprland.lua"
+HOME="$HOME2" OMARCHY_PATH="$TMP/nowhere" "$INSTALL" > "$TMP/install5.log"
+[ "$(count_require "$HOME2/.config/hypr/hyprland.lua")" = 0 ] || fail "require line appended without an Omarchy loader"
+[ ! -f "$HOME2/.config/hypr/hearthstone-deck-tracker.lua" ] || fail "rules file installed without an Omarchy loader"
+grep -q "no Omarchy module loader" "$TMP/install5.log" || fail "no-loader tip not printed"
+
+echo "6. uninstall"
+"$INSTALL" --uninstall > /dev/null
+[ ! -d "$DEST" ] || fail "install dir not removed"
+[ ! -e "$LAUNCHER" ] || fail "launcher not removed"
+[ ! -e "$DESKTOP" ] || fail "desktop entry not removed"
+[ ! -e "$ICON" ] || fail "icon not removed"
+[ ! -e "$RULES" ] || fail "rules file not removed"
+[ "$(count_require "$MAIN")" = 0 ] || fail "require line not removed"
+grep -q -- '-- user config' "$MAIN" || fail "user config content lost on uninstall"
+[ "$(ls "$MAIN".bak.* | wc -l)" = 2 ] || fail "uninstall should have made a second backup"
+
+echo "install smoke test passed"

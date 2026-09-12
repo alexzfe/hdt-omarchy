@@ -3,6 +3,9 @@
 # so it shares a Wine session with Battle.net and Hearthstone (required for HDT to see the game).
 #
 # Installed by linux/install.sh. @HDT_INSTALL_DIR@ is filled in at install time.
+#
+# Environment: HDT_WINEPREFIX (default ~/Games/battlenet), HDT_PROTONPATH (GE-Proton),
+#              HDT_GAMEID (umu-hdt), HDT_NO_XERROR_SHIM=1 to run without the X error shim.
 set -e
 
 WINEPREFIX_DIR="${HDT_WINEPREFIX:-$HOME/Games/battlenet}"
@@ -16,9 +19,19 @@ if [[ ! -f $HDT ]]; then
   echo "Build and install it with linux/install.sh from the hdt-omarchy checkout." >&2
   exit 1
 fi
+if ! command -v umu-run >/dev/null 2>&1; then
+  echo "umu-run (umu-launcher) is not on PATH; it is required to run HDT in the Proton prefix." >&2
+  echo "On Omarchy it comes with the Battle.net setup (omarchy-launch-battlenet); otherwise install umu-launcher." >&2
+  exit 1
+fi
+if [[ ! -d $WINEPREFIX_DIR ]]; then
+  echo "Wine prefix not found: $WINEPREFIX_DIR (set HDT_WINEPREFIX to the Battle.net prefix)." >&2
+  exit 1
+fi
 
 # Proton's Wine exits on an XInput error when XWayland disables a pointer device mid-session
 # (see linux/hdt-xerror-shim.c). Preload the shim so those errors are logged instead of fatal.
+# Note: LD_PRELOAD reaches every process umu starts, Hearthstone included when HDT launches it.
 if [[ -f $XERROR_SHIM_ROOT/lib/x86_64-linux-gnu/libhdt-xerror-shim.so && -z ${HDT_NO_XERROR_SHIM:-} ]]; then
   export LD_PRELOAD="$XERROR_SHIM${LD_PRELOAD:+:$LD_PRELOAD}"
 fi
