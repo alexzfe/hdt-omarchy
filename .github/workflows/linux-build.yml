@@ -1,13 +1,17 @@
-# Build-check for the Linux/Omarchy fork: compiles HDT with the .NET SDK on Linux.
+# Build-check for the Linux/Omarchy fork: compiles HDT and its tests with the .NET SDK on Linux,
+# lints the install scripts, runs the install smoke test and compiles the X error shim.
 # Does not publish any binaries, so it never redistributes the closed-source build dependencies.
 name: linux-build
 
 on:
   push:
-    branches: [omarchy]
+    branches: [omarchy, production-hardening]
   pull_request:
     branches: [omarchy]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -22,3 +26,22 @@ jobs:
 
       - name: Build (Release)
         run: linux/build.sh Release
+
+      - name: Build tests (compile check; they run on Windows in windows-build)
+        run: dotnet build HDTTests/HDTTests.csproj -c Release -p:EnableWindowsTargeting=true -p:Platform=x64 -v q -nologo
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: shellcheck -S warning linux/*.sh linux/launch-hdt.in linux/tests/*.sh
+
+      - name: Install smoke test
+        run: linux/tests/install-smoke.sh
+
+      - name: Compile the X error shim
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libx11-dev
+          cc -shared -fPIC -O2 -Wall -Werror -o /tmp/libhdt-xerror-shim.so linux/hdt-xerror-shim.c -lX11

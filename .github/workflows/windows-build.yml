@@ -1,0 +1,45 @@
+# Windows build and unit tests for the fork, so the "Windows build is unchanged" claim is checked
+# and the existing MSTest suites keep running. Ported from upstream's main.yml without the
+# release/packaging steps. Unverified until the first run on GitHub (see linux/HARDENING.md).
+name: windows-build
+
+on:
+  push:
+    branches: [omarchy, production-hardening]
+  pull_request:
+    branches: [omarchy]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Run Bootstrap
+        run: ./bootstrap.ps1
+
+      - name: Build (Release)
+        run: msbuild "./Hearthstone Deck Tracker.sln" /p:Configuration=Release /p:Platform="x64"
+
+      - name: Setup VSTest
+        uses: Malcolmnixon/Setup-VSTest@v4
+
+      - name: Test
+        run: |
+          vstest.console "HearthWatcher.Test\bin\x64\Release\HearthWatcher.Test.dll"
+          $exit1 = $LASTEXITCODE
+          vstest.console "HDTTests\bin\x64\Release\HDTTests.dll"
+          $exit2 = $LASTEXITCODE
+          if ($exit1 -ne 0 -or $exit2 -ne 0) { exit 1 }
