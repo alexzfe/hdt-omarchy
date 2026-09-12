@@ -64,14 +64,14 @@ smoke test. The Windows CI job has not run yet.
 - [ ] Battlegrounds tabs at the 1299x899 pop-out size: still dead even with the raise (no `ToggleTab`
       logged), so the remaining limit is in HDT's own layout or hit testing at that scale, not X
       stacking. User accepts it for now.
-- [ ] **This branch's HEAD with the real game.** `087341a5` was built and installed at 15:47
+- [x] **This branch's HEAD with the real game.** User (2026-09-12): "deck tracker works well" on
+      `087341a5`; branch merged into `omarchy`. Original note: `087341a5` was built and installed at 15:47
       (`~/.local/share/hearthstone-deck-tracker/app/VERSION`). Re-check with the real game: tabs at
       windowed size, Super+O, fullscreen both ways, background hide/show, and that `hdt_log.txt`
       shows `Wine X11 driver detected` and `hdt-omarchy build: 087341a5 ...`. If the overlay behaves
       worse than the session-5 15:27 build, the differences are the X11-driver gate, ApplyOpacity,
       the per-monitor clamp and the bounded hand-back (`10f2e15b`).
-- [ ] Background hide/show with the real game (works in practice per session-5 logs, never
-      recorded as a check)
+- [x] Background hide/show with the real game (part of the 087341a5 confirmation above)
 - [ ] Overlay stays override-redirect after a real click on an overlay button
 - [ ] Battle.net float rule
 - [ ] Fresh `install.sh` on a clean Omarchy config (smoke test covers the logic; one real run after
