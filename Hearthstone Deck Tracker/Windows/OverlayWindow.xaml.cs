@@ -583,6 +583,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 		private IntPtr _windowHook = IntPtr.Zero;
 		private DispatcherTimer? _gameRectPoller;
 		private System.Drawing.Rectangle _lastPolledGameRect;
+		private bool _deferredPositionLogged;
 
 		internal void HookGameWindow()
 		{
@@ -613,13 +614,21 @@ namespace Hearthstone_Deck_Tracker.Windows
 			{
 				if(User32.GetHearthstoneWindow() == IntPtr.Zero)
 					return;
-				// Wine turns a popup that is moved while it is the active window into a managed
-				// window; wait until a click on the overlay has handed activation back.
-				if(Wine.IsActiveWindow(new WindowInteropHelper(this).Handle))
-					return;
 				var rect = User32.GetHearthstoneRect(true);
 				if(rect == _lastPolledGameRect)
 					return;
+				// Wine turns a popup that is moved while it is the active window into a managed
+				// window. Hand activation back to the game first and retry on the next tick.
+				if(Wine.IsActiveWindow(new WindowInteropHelper(this).Handle))
+				{
+					if(!_deferredPositionLogged)
+						Log.Info("Overlay is the active window, giving the game the foreground before moving");
+					_deferredPositionLogged = true;
+					User32.BringHsToForeground();
+					return;
+				}
+				_deferredPositionLogged = false;
+				Log.Info($"Game window moved to {rect}, updating overlay position");
 				_lastPolledGameRect = rect;
 				UpdatePosition();
 			};
@@ -685,6 +694,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 			// Under Wine a popup covering the whole monitor is handed to the window manager;
 			// staying a pixel short keeps it override-redirect. The canvas keeps the full size.
 			Height = Wine.AvoidFullScreenHeight(top, left, width, height);
+			if(Wine.IsWine)
+				Log.Info($"Overlay rect set to {left},{top} {width}x{Height} (game {width}x{height})");
 			CanvasInfo.Width = width;
 			CanvasInfo.Height = height;
 		}

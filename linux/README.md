@@ -74,11 +74,13 @@ still shares the game's Wine session.
   ```lua
   o.window({ class = "^steam_app_(hdt|battlenet)$", title = "^Hearthstone$" }, { float = true, center = true })
   ```
-- **Safety net for the overlay.** If Wine ever turns the overlay into a managed window (see below),
-  Hyprland would tile it. This keeps it floating, unfocusable and above the game instead:
+- **Battle.net.** Same class situation as the game; keep the launcher and its login window floating:
   ```lua
-  o.window({ class = "^steam_app_hdt$", title = "^HearthstoneOverlay$" }, { float = true, no_focus = true, pin = true })
+  o.window({ class = "^steam_app_(hdt|battlenet)$", title = "^Battle\\.net" }, { float = true, center = true })
   ```
+- **Do not add rules for the overlay window** (`HearthstoneOverlay`). It is override-redirect and
+  Hyprland still applies rules to it: `center`/`size` displace it, and `no_focus` stops keyboard
+  focus from reaching the game underneath (clicks on the overlay area then focus nothing).
 - **Icon.** The desktop entry uses the `hearthstone-deck-tracker` icon that `install.sh` installs, and
   `StartupWMClass=steam_app_hdt` lets bars and docks match the running window to it.
 
@@ -141,7 +143,10 @@ Windows):
   i.e. activates it, so a position update or z-order change right after a click turned the overlay
   into a normal window that Hyprland tiled at the screen edge. Under Wine the overlay now answers
   `WM_MOUSEACTIVATE` with `MA_NOACTIVATE`, skips the topmost/send-to-back `SetWindowPos` calls (the
-  compositor stacks it anyway), and defers position updates while it is the active window.
+  compositor stacks it anyway), and, if it is the active window when the game window moves, first
+  hands the foreground back to the game and moves on the next tick. The log shows every applied
+  rectangle (`Overlay rect set to ...`, `Game window moved to ...`) to make misplacement reports
+  easy to read.
 
 ## Known issues
 
