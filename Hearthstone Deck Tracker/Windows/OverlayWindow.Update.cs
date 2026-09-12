@@ -67,6 +67,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 		public void OnHearthstoneFocused()
 		{
 			Update(true);
+			// the compositor raises the game above the overlay in X when it focuses it
+			Wine.RaiseWithoutActivating(this);
 
 			if(_game.CurrentMode == Mode.BACON)
 			{
@@ -341,6 +343,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 			// the game going into the background, or the overlay would blink on every hover.
 			var isForeground = User32.IsHearthstoneInForeground()
 			                   || Wine.IsForegroundOwnedBy(new WindowInteropHelper(this).Handle);
+			if(Wine.IsWine)
+				isForeground = DebounceWineBackground(isForeground);
 			// minimized uses the opacity-0 path rather than moving the window: DWM stops
 			// producing frames for offscreen windows, which would freeze OBS capture. In
 			// place with opacity 0 the capture stays connected (transparent frames) and
@@ -377,6 +381,30 @@ namespace Hearthstone_Deck_Tracker.Windows
 			}
 			else if(newState == OverlayZState.Behind && User32.IsTopmost(new WindowInteropHelper(this).Handle))
 				SendToBack();
+		}
+
+		private DateTime? _wineBackgroundSince;
+		private static readonly TimeSpan WineBackgroundDelay = TimeSpan.FromMilliseconds(400);
+
+		// Under Wine the foreground leaves the game for a moment now and then (HDT's own window takes it for
+		// a few dozen to a few hundred milliseconds, e.g. with focus-follows-mouse), and going Behind for
+		// each of those makes the overlay blink and turn click-through. Only report the game as backgrounded
+		// once that has lasted a moment; real focus changes still hide the overlay.
+		private bool DebounceWineBackground(bool isForeground)
+		{
+			if(isForeground)
+			{
+				if(_wineBackgroundSince is { } since)
+					Log.Info($"Game has the foreground again after {(DateTime.Now - since).TotalMilliseconds:0} ms");
+				_wineBackgroundSince = null;
+				return true;
+			}
+			if(_wineBackgroundSince == null)
+			{
+				_wineBackgroundSince = DateTime.Now;
+				Log.Info($"Game lost the foreground to {Wine.DescribeForeground()}");
+			}
+			return DateTime.Now - _wineBackgroundSince < WineBackgroundDelay;
 		}
 
 		private void SendToBack()

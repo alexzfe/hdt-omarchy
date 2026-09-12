@@ -654,6 +654,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 				Log.Info($"Game window moved to {rect}, updating overlay position");
 				_lastPolledGameRect = rect;
 				UpdatePosition();
+				// moving or resizing the game raises it above the overlay in X, see Wine.RaiseWithoutActivating
+				Wine.RaiseWithoutActivating(this);
 			};
 			_gameRectPoller.Start();
 		}
@@ -720,7 +722,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 			// staying a pixel short keeps it override-redirect. The canvas keeps the full size.
 			Height = Wine.AvoidFullScreenHeight(top, left, width, height);
 			if(Wine.IsWine)
-				Log.Info($"Overlay rect set to {left},{top} {width}x{Height} (game {width}x{height})");
+				Log.Info($"Overlay rect set to {left},{top} {width}x{Height} (game {width}x{height}, opacity {Opacity:0.##}, mapped {IsVisible})");
 			CanvasInfo.Width = width;
 			CanvasInfo.Height = height;
 		}
@@ -742,7 +744,11 @@ namespace Hearthstone_Deck_Tracker.Windows
 			if(clickthrough)
 				User32.SetWindowExStyle(hwnd, User32.WsExTransparent);
 			else
+			{
 				User32.RemoveWindowExStyle(hwnd, User32.WsExTransparent);
+				// the pointer is over an overlay button, so X has to hand the click to the overlay
+				Wine.RaiseWithoutActivating(this);
+			}
 			return true;
 		}
 
