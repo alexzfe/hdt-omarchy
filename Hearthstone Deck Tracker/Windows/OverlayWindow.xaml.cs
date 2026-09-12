@@ -613,6 +613,10 @@ namespace Hearthstone_Deck_Tracker.Windows
 			{
 				if(User32.GetHearthstoneWindow() == IntPtr.Zero)
 					return;
+				// Wine turns a popup that is moved while it is the active window into a managed
+				// window; wait until a click on the overlay has handed activation back.
+				if(Wine.IsActiveWindow(new WindowInteropHelper(this).Handle))
+					return;
 				var rect = User32.GetHearthstoneRect(true);
 				if(rect == _lastPolledGameRect)
 					return;
@@ -689,6 +693,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 		{
 			var hwnd = new WindowInteropHelper(this).Handle;
 			User32.SetWindowExStyle(hwnd, User32.WsExNoActivate | User32.WsExTransparent);
+			Wine.PreventMouseActivation(this);
 		}
 
 		private bool _clickthrough = false;

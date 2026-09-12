@@ -39,6 +39,11 @@ namespace Hearthstone_Deck_Tracker.Windows
 				return;
 			}
 
+			// Under Wine the compositor keeps the override-redirect overlay on top by itself, and every
+			// SetWindowPos gives Wine a chance to turn the overlay into a managed (tiled) window.
+			if(Wine.IsWine)
+				return;
+
 			for(var i = 0; i < 20; i++)
 			{
 				if(_overlayZState == OverlayZState.Behind)
@@ -375,6 +380,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 		private void SendToBack()
 		{
 			SetClickthrough(true);
+			if(Wine.IsWine)
+				return; // see SetTopmost; "behind" is handled by hiding the content instead
 			User32.SendWindowToBack(new WindowInteropHelper(this).Handle);
 		}
 

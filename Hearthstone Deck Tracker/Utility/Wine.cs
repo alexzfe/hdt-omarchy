@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using Hearthstone_Deck_Tracker.Utility.Logging;
 
@@ -110,7 +111,33 @@ namespace Hearthstone_Deck_Tracker.Utility
 			return false;
 		}
 
+		/// <summary>True when running under Wine and <paramref name="hwnd"/> is the calling thread's active window.</summary>
+		public static bool IsActiveWindow(IntPtr hwnd) => IsWine && hwnd != IntPtr.Zero && GetActiveWindow() == hwnd;
+
+		/// <summary>
+		/// Answers WM_MOUSEACTIVATE with MA_NOACTIVATE so clicks on the window do not activate it.
+		/// Wine makes an activated popup a managed window, which the compositor then tiles.
+		/// </summary>
+		public static void PreventMouseActivation(Window window)
+		{
+			if(!IsWine)
+				return;
+			var source = HwndSource.FromHwnd(new WindowInteropHelper(window).Handle);
+			source?.AddHook((IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) =>
+			{
+				const int wmMouseActivate = 0x0021;
+				const int maNoActivate = 3;
+				if(msg != wmMouseActivate)
+					return IntPtr.Zero;
+				handled = true;
+				return new IntPtr(maNoActivate);
+			});
+		}
+
 		private const uint GwOwner = 4;
+
+		[DllImport("user32.dll")]
+		private static extern IntPtr GetActiveWindow();
 
 		[DllImport("user32.dll")]
 		private static extern IntPtr GetForegroundWindow();

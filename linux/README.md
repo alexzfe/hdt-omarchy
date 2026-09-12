@@ -74,6 +74,11 @@ still shares the game's Wine session.
   ```lua
   o.window({ class = "^steam_app_(hdt|battlenet)$", title = "^Hearthstone$" }, { float = true, center = true })
   ```
+- **Safety net for the overlay.** If Wine ever turns the overlay into a managed window (see below),
+  Hyprland would tile it. This keeps it floating, unfocusable and above the game instead:
+  ```lua
+  o.window({ class = "^steam_app_hdt$", title = "^HearthstoneOverlay$" }, { float = true, no_focus = true, pin = true })
+  ```
 - **Icon.** The desktop entry uses the `hearthstone-deck-tracker` icon that `install.sh` installs, and
   `StartupWMClass=steam_app_hdt` lets bars and docks match the running window to it.
 
@@ -129,6 +134,14 @@ Windows):
 - **Focus on the overlay or its popups is not "background".** Focus given to the overlay window
   itself, or to a tooltip/popup it owns, no longer counts as Hearthstone losing the foreground, which
   avoided a hide/show cycle on every hover.
+- **The overlay must never become a "managed" window.** Wine re-decides on every `SetWindowPos`
+  whether a popup is override-redirect or managed (`winex11.drv/window.c`, `is_window_managed`): it
+  becomes managed, permanently, if it is the thread's active window at that moment, if the call
+  activates it, or if it owns a managed popup. Clicking a button on the overlay makes WPF focus it,
+  i.e. activates it, so a position update or z-order change right after a click turned the overlay
+  into a normal window that Hyprland tiled at the screen edge. Under Wine the overlay now answers
+  `WM_MOUSEACTIVATE` with `MA_NOACTIVATE`, skips the topmost/send-to-back `SetWindowPos` calls (the
+  compositor stacks it anyway), and defers position updates while it is the active window.
 
 ## Known issues
 
