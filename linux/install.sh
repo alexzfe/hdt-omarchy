@@ -130,10 +130,11 @@ fi
 [ -f "$BUILD_OUT/HearthstoneDeckTracker.exe" ] || die "no build output at $BUILD_OUT"
 
 # --- binaries -------------------------------------------------------------------------------------
-# rsync --delete empties the target: refuse any existing, non-empty directory that this script did
-# not create (a wrong HDT_INSTALL_DIR must never wipe something else).
-if [ -d "$DEST" ] && [ -n "$(ls -A "$DEST")" ] && [ ! -f "$DEST/$MARKER" ]; then
-  die "$DEST exists, is not empty and was not created by this script (no $MARKER). Choose another HDT_INSTALL_DIR or empty it yourself."
+# rsync --delete empties the target: refuse any existing, non-empty directory that is not an HDT
+# install (marker file from this script, or HearthstoneDeckTracker.exe from an older install.sh),
+# so a wrong HDT_INSTALL_DIR can never wipe something else.
+if [ -d "$DEST" ] && [ -n "$(ls -A "$DEST")" ] && [ ! -f "$DEST/$MARKER" ] && [ ! -f "$DEST/HearthstoneDeckTracker.exe" ]; then
+  die "$DEST exists, is not empty and is not an HDT install (no $MARKER, no HearthstoneDeckTracker.exe). Choose another HDT_INSTALL_DIR or empty it yourself."
 fi
 note "Installing to $DEST ..."
 mkdir -p "$DEST" "$BIN_DIR" "$APP_DIR" "$ICON_DIR"

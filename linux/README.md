@@ -56,8 +56,8 @@ Then launch HDT (from the menu or `launch-hdt`), start Battle.net, and Play Hear
 game share one Wine session, so HDT sees the game and the overlay tracks it.
 
 `install.sh` also writes a `VERSION` file (git describe, branch, date) next to the binaries; HDT logs
-it at startup as `hdt-omarchy build: ...`. It never deletes a directory it did not create itself
-(the install directory carries a marker file), and `install.sh --uninstall` removes everything it
+it at startup as `hdt-omarchy build: ...`. It never deletes a directory that is not an HDT install
+(marker file, or the exe from an older install.sh), and `install.sh --uninstall` removes everything it
 installed, including the Hyprland require line, and leaves the Wine prefix alone.
 
 | Variable | Effect |

@@ -54,6 +54,12 @@ FOREIGN="$TMP/foreign"; mkdir -p "$FOREIGN"; echo keep > "$FOREIGN/keep"
 if HDT_INSTALL_DIR="$FOREIGN" "$INSTALL" > /dev/null 2>&1; then fail "installed over a foreign non-empty directory"; fi
 [ -f "$FOREIGN/keep" ] || fail "foreign directory was wiped"
 
+echo "3b. upgrades an install made before the marker existed"
+LEGACY="$TMP/legacy"; mkdir -p "$LEGACY"; echo old > "$LEGACY/HearthstoneDeckTracker.exe"; echo old > "$LEGACY/stale.dll"
+HDT_INSTALL_DIR="$LEGACY" "$INSTALL" > /dev/null
+[ -f "$LEGACY/.hdt-omarchy-install" ] || fail "legacy install not upgraded"
+[ ! -e "$LEGACY/stale.dll" ] || fail "stale file survived the upgrade"
+
 echo "4. installs into an empty directory given explicitly"
 EMPTY="$TMP/empty"; mkdir -p "$EMPTY"
 HDT_INSTALL_DIR="$EMPTY" "$INSTALL" > /dev/null
