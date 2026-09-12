@@ -169,30 +169,47 @@ Windows):
   into a normal window that Hyprland tiled at the screen edge. Under Wine the overlay now answers
   `WM_MOUSEACTIVATE` with `MA_NOACTIVATE`, skips the topmost/send-to-back `SetWindowPos` calls (the
   compositor stacks it anyway), and, if it is the active window when the game window moves, first
-  hands the foreground back to the game and moves on the next tick. The log shows every applied
-  rectangle (`Overlay rect set to ...`, `Game window moved to ...`) to make misplacement reports
-  easy to read.
+  hands the foreground back to the game and moves on the next tick. With HDT's `LogLevel` setting above 0
+  (Debug) the log shows every applied rectangle (`Overlay rect set to ...`, `Game window moved to ...`),
+  which makes misplacement reports easy to read.
+
+## Overlay buttons and X stacking
+
+XWayland hands every click to the topmost X window under the pointer, in the X server's own stacking
+order, which is not the order Hyprland draws windows in. Hyprland moves a managed X11 window to the top
+of that order whenever it activates it. After the game window was focused, moved or resized, the game
+therefore sat above the override-redirect overlay in X: the overlay was still drawn on top and its
+buttons still showed hover effects, but every click went to the game. This showed up as dead
+Battlegrounds tabs (Comps, Minions) whenever the game was not fullscreen.
+
+Under Wine's X11 driver HDT raises the overlay again without activating it
+(`Wine.RaiseWithoutActivating`): `SetWindowPos` to `HWND_NOTOPMOST`, then back to `HWND_TOPMOST`, with
+`SWP_NOACTIVATE`. A single `HWND_TOPMOST` does nothing because Wine sees the overlay as already on top of
+the Win32 z-order and never restacks the X window. It runs when the pointer enters an overlay button,
+after the game window moves or resizes, and when the game regains focus. It is skipped while the
+overlay is Wine's active window, the condition that would make Wine hand it to the window manager.
 
 ## Known issues
 
-- **Overlay buttons stop working when the game window is small** (reported with the `Super+O` pop-out
-  size, 1300x900, in Battlegrounds): the "Comps" button shades when clicked but its panel does not
-  open. Not diagnosed yet. The HDT log shows an `Overlay Visible -> Behind` / `Behind -> Visible` pair
-  at each such click, so the foreground briefly leaves the game while the button is handled.
-- **Overlay disappears after leaving fullscreen** (game fullscreen → windowed): HDT keeps placing the
-  overlay (`Overlay rect set to ...` lines continue, no visibility state change), but Hyprland stops
-  drawing it until the game is restarted. Not diagnosed yet; `hyprctl clients -j` fields `pinned`,
-  `pinFullscreened`, `allowedOverFullscreen` and `mapped` for `HearthstoneOverlay` are the first thing
-  to check while it is gone.
+- **Overlay buttons at the smallest pop-out size.** With the X stacking fix above, the Battlegrounds
+  Comps/Minions tabs work fullscreen and with a windowed game down to at least 1541x1110 (real-game
+  test). At Omarchy's `Super+O` pop-out size (1300x900) they still do not respond: the click never
+  reaches the button. X stacking is not the cause at that size; it is probably HDT's own click-through
+  detection or layout at that scale. Workaround: make the game window larger, or fullscreen.
+- **Overlay after leaving fullscreen.** Reported once (the overlay stayed gone after fullscreen →
+  windowed); it no longer reproduces with the real game or in the test bench, and no specific fix was
+  identified. If it comes back, the `hyprctl clients -j` fields `pinned`, `allowedOverFullscreen` and
+  `mapped` for `HearthstoneOverlay` are the first thing to check while it is gone.
 - **Settings while in game.** The report was: opening HDT's settings while Hearthstone is running
   stops the overlay being placed over the game and it occasionally flickers. Two causes were found and
   fixed (the window hook above, and the class-only Hyprland rule floating/centring the overlay); the
   scenario now behaves in an isolated test bench with a fake game window, but has not been re-tested
   against the real game yet.
 - The overlay's visibility state changes are logged under Wine (`Overlay Visible -> Behind (game
-  foreground: False)`), next to the position lines, so "the overlay is gone" reports can be read from
+  foreground: False, foreground window: ...)`), next to the position lines, so "the overlay is gone" reports can be read from
   `hdt_log.txt`: no state change means the compositor stopped drawing it (see the pin rule above).
-- Closing the main window hides HDT to the tray rather than quitting.
+- Closing the main window quits HDT, overlay included, unless *Close to tray* is enabled in HDT's
+  settings (`CloseToTray` in `config.xml`).
 
 ## One-time Wine prefix setup
 
