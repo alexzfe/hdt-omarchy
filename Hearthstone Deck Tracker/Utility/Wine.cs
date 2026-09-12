@@ -62,7 +62,10 @@ namespace Hearthstone_Deck_Tracker.Utility
 						_isWine = false;
 					}
 					if(_isWine.Value)
+					{
 						Log.Info("Running under Wine; applying overlay workarounds");
+						LogForkVersion();
+					}
 					return _isWine.Value;
 				}
 			}
@@ -102,6 +105,24 @@ namespace Hearthstone_Deck_Tracker.Utility
 						: "Wine is not using its X11 driver; keeping upstream overlay window handling");
 					return _usesX11Driver.Value;
 				}
+			}
+		}
+
+		/// <summary>
+		/// linux/install.sh writes the fork's git describe output to a VERSION file next to the
+		/// executable; logging it lets a log file say which build produced it.
+		/// </summary>
+		private static void LogForkVersion()
+		{
+			try
+			{
+				var path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "VERSION");
+				if(System.IO.File.Exists(path))
+					Log.Info($"hdt-omarchy build: {System.IO.File.ReadAllText(path).Trim()}");
+			}
+			catch(Exception e)
+			{
+				Log.Warn($"Could not read the VERSION file: {e.Message}");
 			}
 		}
 
