@@ -7,6 +7,9 @@ set -e
 
 WINEPREFIX_DIR="${HDT_WINEPREFIX:-$HOME/Games/battlenet}"
 HDT="@HDT_INSTALL_DIR@/HearthstoneDeckTracker.exe"
+# $LIB is expanded by the dynamic loader per process architecture (lib/x86_64-linux-gnu, lib/i386-linux-gnu, lib, lib32).
+XERROR_SHIM_ROOT="$(dirname "@HDT_INSTALL_DIR@")"
+XERROR_SHIM="$XERROR_SHIM_ROOT/\$LIB/libhdt-xerror-shim.so"
 
 if [[ ! -f $HDT ]]; then
   echo "Hearthstone Deck Tracker is not installed at: $HDT" >&2
@@ -14,9 +17,17 @@ if [[ ! -f $HDT ]]; then
   exit 1
 fi
 
+# Proton's Wine exits on an XInput error when XWayland disables a pointer device mid-session
+# (see linux/hdt-xerror-shim.c). Preload the shim so those errors are logged instead of fatal.
+if [[ -f $XERROR_SHIM_ROOT/lib/x86_64-linux-gnu/libhdt-xerror-shim.so && -z ${HDT_NO_XERROR_SHIM:-} ]]; then
+  export LD_PRELOAD="$XERROR_SHIM${LD_PRELOAD:+:$LD_PRELOAD}"
+fi
+
+# The umu game id only names this app: it becomes the X11 window class (steam_app_hdt), which
+# the desktop entry and any compositor rules match on. The prefix is chosen by WINEPREFIX.
 exec env \
   WINEPREFIX="$WINEPREFIX_DIR" \
   PROTONPATH="${HDT_PROTONPATH:-GE-Proton}" \
-  GAMEID="${HDT_GAMEID:-umu-battlenet}" \
+  GAMEID="${HDT_GAMEID:-umu-hdt}" \
   PROTON_VERB=run \
   umu-run "$HDT" "$@"

@@ -14,7 +14,8 @@ All changes are gated behind a runtime Wine check, so the Windows build and beha
   plus small edits to the transparent windows. See [Why the overlay was black](#why-the-overlay-was-black).
 - **Linux build** — `linux/build.sh`, `linux/fetch-deps.sh`, and two csproj changes so the project
   builds with the .NET SDK on Linux.
-- **Install & run** — `linux/install.sh`, `linux/launch-hdt.in`, `linux/hearthstone-deck-tracker.desktop.in`.
+- **Install & run** — `linux/install.sh`, `linux/launch-hdt.in`, `linux/hearthstone-deck-tracker.desktop.in`,
+  the app icon, and `linux/hdt-xerror-shim.c` (keeps Proton's Wine alive across an XInput error, see below).
 
 ## Requirements
 
@@ -39,6 +40,8 @@ linux/install.sh
 | Binary | `~/.local/share/hearthstone-deck-tracker/app/` (override with `HDT_INSTALL_DIR`) |
 | Launcher | `~/.local/bin/launch-hdt` |
 | Menu entry | `~/.local/share/applications/hearthstone-deck-tracker.desktop` |
+| Icon | `~/.local/share/icons/hicolor/256x256/apps/hearthstone-deck-tracker.png` |
+| X error shim | `~/.local/share/hearthstone-deck-tracker/lib/<arch>/libhdt-xerror-shim.so` (see below) |
 
 Then launch HDT (from the menu or `launch-hdt`), start Battle.net, and Play Hearthstone. HDT and the
 game share one Wine session, so HDT sees the game and the overlay tracks it.
@@ -46,8 +49,46 @@ game share one Wine session, so HDT sees the game and the overlay tracks it.
 To just build without installing: `linux/build.sh [Debug|Release]`. Output lands in
 `Hearthstone Deck Tracker/bin/x64/<Config>/`.
 
-The launcher assumes the prefix at `~/Games/battlenet` and the `GE-Proton`/`umu-battlenet` umu ids.
-Override with `HDT_WINEPREFIX`, `HDT_PROTONPATH`, `HDT_GAMEID`.
+The launcher assumes the prefix at `~/Games/battlenet` and the `GE-Proton` umu runner. Override with
+`HDT_WINEPREFIX`, `HDT_PROTONPATH`, `HDT_GAMEID`. The umu game id defaults to `umu-hdt`; it only
+names this app (Proton turns it into the X11 window class `steam_app_hdt`, which the menu entry's
+`StartupWMClass` and any compositor rules match on). The prefix is selected by `WINEPREFIX`, so HDT
+still shares the game's Wine session.
+
+## Running on Hyprland / Omarchy
+
+- **Keep the main window floating.** Hyprland tiles the tracker window by default, and resizing the
+  WPF window to a tile breaks its layout. The in-game overlay is unaffected: it is an
+  override-redirect X11 window that the compositor never manages. Add to `~/.config/hypr/hyprland.lua`:
+  ```lua
+  o.window("^steam_app_hdt$", { float = true, center = true, size = { 1400, 900 } })
+  ```
+  (plain Hyprland config: `windowrule = float, match:class:^steam_app_hdt$` plus `center` / `size`).
+- **Icon.** The desktop entry uses the `hearthstone-deck-tracker` icon that `install.sh` installs, and
+  `StartupWMClass=steam_app_hdt` lets bars and docks match the running window to it.
+
+## "X Error of failed request: XI_BadDevice" — HDT disappears mid-session
+
+Proton's Wine (`winex11.drv/mouse.c`, `update_device_mapping`) reads the XInput 1 button mapping of
+the pointer slave device that last sent an event. Under XWayland, the compositor dropping the seat's
+pointer capability for a moment (an input device toggled or unplugged, for example) makes XWayland
+*disable* its pointer devices. `XOpenDevice` still accepts a disabled device, but
+`X_GetDeviceButtonMapping` answers `XI_BadDevice`. Wine hands unexpected X errors to Xlib's default
+handler, which prints the error and calls `exit(1)` — the app just vanishes. Upstream Wine does not
+have this code; it is Proton-specific. In the journal it looks like:
+
+```
+X Error of failed request:  XI_BadDevice (invalid Device parameter)
+  Major opcode of failed request:  131 (XInputExtension)
+  Minor opcode of failed request:  28 (X_GetDeviceButtonMapping)
+```
+
+`linux/hdt-xerror-shim.c` is a tiny `LD_PRELOAD` library that wraps `XSetErrorHandler` so the fallback
+Wine remembers is a logging, non-fatal handler instead of Xlib's exiting default. Errors Wine expects
+or ignores are untouched. `install.sh` builds it for 64- and 32-bit and `launch-hdt` preloads it via
+`$LIB` so each Wine process picks the right one. Set `HDT_NO_XERROR_SHIM=1` to run without it. Any
+other Proton app in the same session (Hearthstone itself) is exposed to the same bug; the shim can
+be added to its launcher the same way (`LD_PRELOAD=<dir>/\$LIB/libhdt-xerror-shim.so`).
 
 ### Build dependencies
 
@@ -55,6 +96,13 @@ HDT references externally-hosted libraries (HearthDb, **HearthMirror**, HSReplay
 HDT-Localization strings. On Windows the upstream `Bootstrap` project downloads these; on Linux,
 `linux/fetch-deps.sh` does the same from `https://libs.hearthsim.net/hdt/`. These libraries are **not
 redistributable** and are gitignored — they are fetched fresh at build time, never committed.
+
+## Known issues
+
+- **Opening HDT's settings while Hearthstone is running breaks the tracker** (Wine/Hyprland only; on
+  Windows the overlay keeps working, sized to the game window). Not yet investigated.
+- The overlay re-applies "topmost" about twice a second under Wine (log spam only).
+- Closing the main window hides HDT to the tray rather than quitting.
 
 ## One-time Wine prefix setup
 
