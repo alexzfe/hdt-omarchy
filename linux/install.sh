@@ -6,6 +6,7 @@
 #   Menu:     ~/.local/share/applications/hearthstone-deck-tracker.desktop
 #   Icon:     ~/.local/share/icons/hicolor/256x256/apps/hearthstone-deck-tracker.png
 #   Shim:     $HDT_INSTALL_DIR/../lib/<arch>/libhdt-xerror-shim.so  (see linux/hdt-xerror-shim.c)
+#   Hyprland: ~/.config/hypr/hearthstone-deck-tracker.lua + a require line in ~/.config/hypr/hyprland.lua
 #
 # The launcher runs HDT inside the Battle.net Wine prefix so it shares a Wine session with the game.
 # See linux/README.md for prefix setup. Override the prefix with HDT_WINEPREFIX (default ~/Games/battlenet).
@@ -60,6 +61,34 @@ echo "  binary:   $DEST"
 echo "  launcher: $BIN_DIR/launch-hdt   (ensure $BIN_DIR is on PATH)"
 echo "  menu:     $APP_DIR/hearthstone-deck-tracker.desktop"
 [ -n "$SHIM" ] && echo "  shim:     $SHIM"
-echo "Tip (Hyprland): float the main window with"
-echo "  o.window({ class = \"^steam_app_hdt\$\", title = \"^Hearthstone Deck Tracker\$\" }, { float = true, center = true, size = { 1400, 900 } })"
-echo "  o.window({ class = \"^steam_app_(hdt|battlenet)\$\", title = \"^Hearthstone\$\" }, { float = true, center = true })"
+
+# Hyprland window rules (Omarchy's Lua config). The rules file is copied next to the user's config
+# and loaded from hyprland.lua through Omarchy's require_optional, so removing the file later is
+# harmless. Skipped when there is no Omarchy-style ~/.config/hypr/hyprland.lua.
+HYPR_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
+HYPR_MAIN="$HYPR_DIR/hyprland.lua"
+HYPR_RULES="$HYPR_DIR/hearthstone-deck-tracker.lua"
+HYPR_REQUIRE='require("default.hypr.require_optional").module("hypr.hearthstone-deck-tracker")'
+if [ -f "$HYPR_MAIN" ]; then
+  cp "$REPO_ROOT/linux/hyprland/hearthstone-deck-tracker.lua" "$HYPR_RULES"
+  if ! grep -qF 'hypr.hearthstone-deck-tracker' "$HYPR_MAIN"; then
+    cp "$HYPR_MAIN" "$HYPR_MAIN.bak.$(date +%s)"
+    {
+      echo
+      echo "-- Hearthstone Deck Tracker (hdt-omarchy) window rules, installed by linux/install.sh."
+      echo "$HYPR_REQUIRE"
+    } >> "$HYPR_MAIN"
+  fi
+  echo "  hyprland: $HYPR_RULES (loaded from $HYPR_MAIN)"
+  if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+    hyprctl reload >/dev/null 2>&1 || true
+    ERRS="$(hyprctl configerrors 2>/dev/null || true)"
+    if [ -n "$ERRS" ] && [ "$ERRS" != "No errors." ]; then
+      echo "warning: hyprctl configerrors reports:" >&2
+      echo "$ERRS" >&2
+    fi
+  fi
+else
+  echo "Tip (Hyprland): no $HYPR_MAIN found; add the rules from linux/hyprland/hearthstone-deck-tracker.lua"
+  echo "  to your Hyprland config (see linux/README.md for the classic-syntax equivalent)."
+fi

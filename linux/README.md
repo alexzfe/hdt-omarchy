@@ -57,30 +57,41 @@ still shares the game's Wine session.
 
 ## Running on Hyprland / Omarchy
 
-- **Keep the main window floating.** Hyprland tiles the tracker window by default, and resizing the
-  WPF window to a tile breaks its layout. The in-game overlay is unaffected: it is an
-  override-redirect X11 window that the compositor never manages. Add to `~/.config/hypr/hyprland.lua`:
-  ```lua
-  o.window({ class = "^steam_app_hdt$", title = "^Hearthstone Deck Tracker$" }, { float = true, center = true, size = { 1400, 900 } })
-  ```
-  (plain Hyprland config: `windowrule = float on, match:class ^steam_app_hdt$, match:title ^Hearthstone Deck Tracker$`
-  plus `center on` / `size 1400 900` with the same matchers). Match the **title** as well as the class:
-  the overlay window (`HearthstoneOverlay`) has the same class, and a class-only rule also floats,
-  resizes and centres the override-redirect overlay in the compositor's view, leaving it drawn away
-  from the game window until the game next moves.
-- **Keep the game floating too.** Hearthstone's window class is `steam_app_battlenet` when Battle.net
-  starts it and `steam_app_hdt` when HDT starts it (the umu game id is inherited), and Hyprland tiles
-  it in windowed mode either way:
-  ```lua
-  o.window({ class = "^steam_app_(hdt|battlenet)$", title = "^Hearthstone$" }, { float = true, center = true })
-  ```
-- **Battle.net.** Same class situation as the game; keep the launcher and its login window floating:
-  ```lua
-  o.window({ class = "^steam_app_(hdt|battlenet)$", title = "^Battle\\.net" }, { float = true, center = true })
-  ```
-- **Do not add rules for the overlay window** (`HearthstoneOverlay`). It is override-redirect and
-  Hyprland still applies rules to it: `center`/`size` displace it, and `no_focus` stops keyboard
-  focus from reaching the game underneath (clicks on the overlay area then focus nothing).
+`install.sh` installs a window-rules file, `~/.config/hypr/hearthstone-deck-tracker.lua` (source:
+`linux/hyprland/hearthstone-deck-tracker.lua`), and appends one line to `~/.config/hypr/hyprland.lua`
+that loads it through Omarchy's `require_optional` (a backup of `hyprland.lua` is kept next to it).
+Re-running `install.sh` overwrites the rules file and leaves `hyprland.lua` alone once the line is
+there. To customise, add your own `o.window` rules below that line; they run later and win.
+
+What the rules do, and why every one of them matches **class and title** (all of HDT's windows share
+the class `steam_app_hdt`, and Hearthstone/Battle.net inherit it when HDT launches them, or get
+`steam_app_battlenet` when Battle.net does):
+
+- **Main window floats** (`^Hearthstone Deck Tracker$`): Hyprland tiles it by default, and resizing
+  the WPF window to a tile breaks its layout.
+- **Hearthstone floats** (`^Hearthstone$`): Hyprland tiles the game in windowed mode either way.
+- **Battle.net floats** (`^Battle\.net`): launcher and login window.
+- **The overlay is pinned** (`^HearthstoneOverlay$`), and nothing else. Hyprland draws pinned windows
+  in a final pass above every other window. Without the pin, two things hide the overlay even though
+  HDT places it correctly: a *pinned* game (Omarchy's `Super+O` "pop out" floats and pins the active
+  window) is drawn in that final pass, above the unpinned overlay; and every time a window goes
+  fullscreen on the workspace, Hyprland clears an "allowed over fullscreen" flag on all unpinned
+  windows there, which an override-redirect window only regains when its X geometry changes by more
+  than 2 px (a fullscreen re-entry that moves the overlay by 2 px or less leaves it hidden). Pinned
+  windows are exempt from both. The overlay is click-through, and HDT hides it (opacity 0) whenever
+  the game is not focused, so pinning does not show it on other workspaces in practice. Do **not** add
+  `center`/`size` (they displace the override-redirect window) or `no_focus` (it stops keyboard focus
+  from reaching the game underneath).
+
+Plain (non-Lua) Hyprland config equivalent:
+
+```
+windowrule = float on, center on, size 1400 900, match:class ^steam_app_hdt$, match:title ^Hearthstone Deck Tracker$
+windowrule = float on, center on, match:class ^steam_app_(hdt|battlenet)$, match:title ^Hearthstone$
+windowrule = float on, center on, match:class ^steam_app_(hdt|battlenet)$, match:title ^Battle\.net
+windowrule = pin on, match:class ^steam_app_hdt$, match:title ^HearthstoneOverlay$
+```
+
 - **Icon.** The desktop entry uses the `hearthstone-deck-tracker` icon that `install.sh` installs, and
   `StartupWMClass=steam_app_hdt` lets bars and docks match the running window to it.
 
@@ -155,8 +166,9 @@ Windows):
   fixed (the window hook above, and the class-only Hyprland rule floating/centring the overlay); the
   scenario now behaves in an isolated test bench with a fake game window, but has not been re-tested
   against the real game yet.
-- Under Wine, `WS_EX_TOPMOST` is cleared on the overlay from time to time; HDT re-applies it and
-  logs `Overlay is topmost after 2 tries` (log spam only; the compositor keeps the overlay on top anyway).
+- The overlay's visibility state changes are logged under Wine (`Overlay Visible -> Behind (game
+  foreground: False)`), next to the position lines, so "the overlay is gone" reports can be read from
+  `hdt_log.txt`: no state change means the compositor stopped drawing it (see the pin rule above).
 - Closing the main window hides HDT to the tray rather than quitting.
 
 ## One-time Wine prefix setup

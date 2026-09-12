@@ -367,6 +367,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 
 			if(newState != _overlayZState)
 			{
+				if(Wine.IsWine)
+					Log.Info($"Overlay {_overlayZState} -> {newState} (game foreground: {isForeground})");
 				_overlayZState = newState;
 				if(newState == OverlayZState.Behind)
 					SendToBack();
