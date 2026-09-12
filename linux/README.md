@@ -68,6 +68,12 @@ still shares the game's Wine session.
   the overlay window (`HearthstoneOverlay`) has the same class, and a class-only rule also floats,
   resizes and centres the override-redirect overlay in the compositor's view, leaving it drawn away
   from the game window until the game next moves.
+- **Keep the game floating too.** Hearthstone's window class is `steam_app_battlenet` when Battle.net
+  starts it and `steam_app_hdt` when HDT starts it (the umu game id is inherited), and Hyprland tiles
+  it in windowed mode either way:
+  ```lua
+  o.window({ class = "^steam_app_(hdt|battlenet)$", title = "^Hearthstone$" }, { float = true, center = true })
+  ```
 - **Icon.** The desktop entry uses the `hearthstone-deck-tracker` icon that `install.sh` installs, and
   `StartupWMClass=steam_app_hdt` lets bars and docks match the running window to it.
 
