@@ -39,9 +39,9 @@ namespace Hearthstone_Deck_Tracker.Windows
 				return;
 			}
 
-			// Under Wine the compositor keeps the override-redirect overlay on top by itself, and every
-			// SetWindowPos gives Wine a chance to turn the overlay into a managed (tiled) window.
-			if(Wine.IsWine)
+			// Under Wine's X11 driver the compositor keeps the override-redirect overlay on top by itself,
+			// and every SetWindowPos gives Wine a chance to turn the overlay into a managed (tiled) window.
+			if(Wine.UsesX11Driver)
 				return;
 
 			for(var i = 0; i < 20; i++)
@@ -67,8 +67,6 @@ namespace Hearthstone_Deck_Tracker.Windows
 		public void OnHearthstoneFocused()
 		{
 			Update(true);
-			// the compositor raises the game above the overlay in X when it focuses it
-			Wine.RaiseWithoutActivating(this);
 
 			if(_game.CurrentMode == Mode.BACON)
 			{
@@ -191,7 +189,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 			StackPanelOpponent.Opacity = Config.Instance.OpponentOpacity / 100;
 			SecretsContainer.Opacity = Config.Instance.SecretsOpacity / 100;
 			// Keep GridMain rendered but hidden, so that the capturable overlay still works
-			Opacity = IsContentVisible ? Config.Instance.OverlayOpacity / 100 : 0;
+			ApplyOpacity();
 
 			var inBattlegrounds = _game.IsBattlegroundsMatch || Core.Game.CurrentMode == Mode.BACON;
 			var inMercenaries = _game.IsMercenariesMatch;
@@ -343,8 +341,6 @@ namespace Hearthstone_Deck_Tracker.Windows
 			// the game going into the background, or the overlay would blink on every hover.
 			var isForeground = User32.IsHearthstoneInForeground()
 			                   || Wine.IsForegroundOwnedBy(new WindowInteropHelper(this).Handle);
-			if(Wine.IsWine)
-				isForeground = DebounceWineBackground(isForeground);
 			// minimized uses the opacity-0 path rather than moving the window: DWM stops
 			// producing frames for offscreen windows, which would freeze OBS capture. In
 			// place with opacity 0 the capture stays connected (transparent frames) and
@@ -358,21 +354,22 @@ namespace Hearthstone_Deck_Tracker.Windows
 			var newState = hardHidden ? OverlayZState.Hidden
 				: behind ? OverlayZState.Behind : OverlayZState.Visible;
 
+			// Wine's override-redirect overlay is drawn above every other window by Wayland compositors,
+			// so sending it behind the game does nothing there; hide the content instead. The flag feeds
+			// ApplyOpacity, the single place that decides the window's opacity, so no other code path
+			// (ShowOverlay, Update) can make a "behind" overlay visible between two ticks.
+			_hiddenBehindGame = Wine.UsesX11Driver && newState == OverlayZState.Behind;
+
 			var contentVisible = newState != OverlayZState.Hidden;
 			var updatePosition = contentVisible && !IsContentVisible;
 			ShowOverlay(contentVisible);
 			if(updatePosition)
 				UpdatePosition();
 
-			// Wine's override-redirect overlay is drawn above every other window by Wayland compositors,
-			// so sending it behind the game does nothing there; hide the content instead.
-			if(Wine.IsWine && newState == OverlayZState.Behind)
-				Opacity = 0;
-
 			if(newState != _overlayZState)
 			{
 				if(Wine.IsWine)
-					Log.Info($"Overlay {_overlayZState} -> {newState} (game foreground: {isForeground})");
+					Log.Info($"Overlay {_overlayZState} -> {newState} (game foreground: {isForeground}, foreground window: {Wine.DescribeForeground()})");
 				_overlayZState = newState;
 				if(newState == OverlayZState.Behind)
 					SendToBack();
@@ -383,34 +380,20 @@ namespace Hearthstone_Deck_Tracker.Windows
 				SendToBack();
 		}
 
-		private DateTime? _wineBackgroundSince;
-		private static readonly TimeSpan WineBackgroundDelay = TimeSpan.FromMilliseconds(400);
+		/// <summary>Set while the overlay is in the Behind state under Wine's X11 driver; see UpdateVisibility.</summary>
+		private bool _hiddenBehindGame;
 
-		// Under Wine the foreground leaves the game for a moment now and then (HDT's own window takes it for
-		// a few dozen to a few hundred milliseconds, e.g. with focus-follows-mouse), and going Behind for
-		// each of those makes the overlay blink and turn click-through. Only report the game as backgrounded
-		// once that has lasted a moment; real focus changes still hide the overlay.
-		private bool DebounceWineBackground(bool isForeground)
-		{
-			if(isForeground)
-			{
-				if(_wineBackgroundSince is { } since)
-					Log.Info($"Game has the foreground again after {(DateTime.Now - since).TotalMilliseconds:0} ms");
-				_wineBackgroundSince = null;
-				return true;
-			}
-			if(_wineBackgroundSince == null)
-			{
-				_wineBackgroundSince = DateTime.Now;
-				Log.Info($"Game lost the foreground to {Wine.DescribeForeground()}");
-			}
-			return DateTime.Now - _wineBackgroundSince < WineBackgroundDelay;
-		}
+		/// <summary>
+		/// The one place that decides the overlay window's opacity: the configured overlay opacity
+		/// while content is visible, zero when it is not or when Wine hides it behind the game.
+		/// </summary>
+		internal void ApplyOpacity()
+			=> Opacity = IsContentVisible && !_hiddenBehindGame ? Config.Instance.OverlayOpacity / 100 : 0;
 
 		private void SendToBack()
 		{
 			SetClickthrough(true);
-			if(Wine.IsWine)
+			if(Wine.UsesX11Driver)
 				return; // see SetTopmost; "behind" is handled by hiding the content instead
 			User32.SendWindowToBack(new WindowInteropHelper(this).Handle);
 		}

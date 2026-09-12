@@ -33,7 +33,7 @@ public class BattlegroundsGuidesTabsViewModel : ViewModel
 		ActiveViewModel = isClosing ? null : viewModel;
 		AnimateMetaSnapshot = true;
 		if(Wine.IsWine)
-			Log.Info($"Battlegrounds guides tab {viewModel.GetType().Name} {(isClosing ? "closed" : "opened")}, overlay {Core.Overlay.ActualWidth:0}x{Core.Overlay.ActualHeight:0}, content max height {Core.Overlay.GuidesTabs.TabsContent.MaxHeight:0}");
+			Log.Debug($"Battlegrounds guides tab {viewModel.GetType().Name} {(isClosing ? "closed" : "opened")}, overlay {Core.Overlay.ActualWidth:0}x{Core.Overlay.ActualHeight:0}, content max height {Core.Overlay.GuidesTabs.TabsContent.MaxHeight:0}");
 	}
 
 	public bool AnimateMetaSnapshot

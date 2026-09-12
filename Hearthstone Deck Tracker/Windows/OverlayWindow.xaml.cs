@@ -583,7 +583,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 		private IntPtr _windowHook = IntPtr.Zero;
 		private DispatcherTimer? _gameRectPoller;
 		private System.Drawing.Rectangle _lastPolledGameRect;
-		private bool _deferredPositionLogged;
+		private int _foregroundHandBackAttempts;
+		private const int MaxForegroundHandBackAttempts = 8; // 2 s at the 250 ms poll interval
 		private IntPtr _ownedGameWindow;
 
 		internal void HookGameWindow()
@@ -593,9 +594,9 @@ namespace Hearthstone_Deck_Tracker.Windows
 			var thread = User32.GetHearthstoneWindowThread();
 			if(thread.ProcId == 0)
 				return;
-			// Under Wine the game window becomes the overlay's owner so the compositor stacks the
-			// overlay with the game (see Wine.SetOwner). Cleared again in UnhookGameWindow.
-			if(Wine.IsWine)
+			// Under Wine's X11 driver the game window becomes the overlay's owner so the compositor
+			// stacks the overlay with the game (see Wine.SetOwner). Cleared again in UnhookGameWindow.
+			if(Wine.UsesX11Driver)
 			{
 				_ownedGameWindow = User32.GetHearthstoneWindow();
 				Wine.SetOwner(this, _ownedGameWindow);
@@ -641,21 +642,28 @@ namespace Hearthstone_Deck_Tracker.Windows
 				if(rect == _lastPolledGameRect)
 					return;
 				// Wine turns a popup that is moved while it is the active window into a managed
-				// window. Hand activation back to the game first and retry on the next tick.
+				// window. Hand activation back to the game first and retry on the next tick, a bounded
+				// number of times so this can never turn into a focus-stealing loop.
 				if(Wine.IsActiveWindow(new WindowInteropHelper(this).Handle))
 				{
-					if(!_deferredPositionLogged)
-						Log.Info("Overlay is the active window, giving the game the foreground before moving");
-					_deferredPositionLogged = true;
-					User32.BringHsToForeground();
+					if(_foregroundHandBackAttempts < MaxForegroundHandBackAttempts)
+					{
+						if(_foregroundHandBackAttempts == 0)
+							Log.Info("Overlay is the active window, giving the game the foreground before moving");
+						_foregroundHandBackAttempts++;
+						User32.BringHsToForeground();
+					}
+					else if(_foregroundHandBackAttempts == MaxForegroundHandBackAttempts)
+					{
+						_foregroundHandBackAttempts++;
+						Log.Warn($"Overlay is still the active window after {MaxForegroundHandBackAttempts} attempts to give the game the foreground; waiting");
+					}
 					return;
 				}
-				_deferredPositionLogged = false;
-				Log.Info($"Game window moved to {rect}, updating overlay position");
+				_foregroundHandBackAttempts = 0;
+				Log.Debug($"Game window moved to {rect}, updating overlay position");
 				_lastPolledGameRect = rect;
 				UpdatePosition();
-				// moving or resizing the game raises it above the overlay in X, see Wine.RaiseWithoutActivating
-				Wine.RaiseWithoutActivating(this);
 			};
 			_gameRectPoller.Start();
 		}
@@ -696,7 +704,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 		public void ShowOverlay(bool enable)
 		{
 			IsContentVisible = enable;
-			Opacity = enable ? Config.Instance.OverlayOpacity / 100 : 0;
+			ApplyOpacity();
 			if(!enable)
 				SetClickthrough(true);
 			try
@@ -718,11 +726,11 @@ namespace Hearthstone_Deck_Tracker.Windows
 			Top = top;
 			Left = left;
 			Width = width;
-			// Under Wine a popup covering the whole monitor is handed to the window manager;
-			// staying a pixel short keeps it override-redirect. The canvas keeps the full size.
+			// Under Wine's X11 driver a popup covering the whole monitor is handed to the window
+			// manager; staying a pixel short keeps it override-redirect. The canvas keeps the full size.
 			Height = Wine.AvoidFullScreenHeight(top, left, width, height);
 			if(Wine.IsWine)
-				Log.Info($"Overlay rect set to {left},{top} {width}x{Height} (game {width}x{height}, opacity {Opacity:0.##}, mapped {IsVisible})");
+				Log.Debug($"Overlay rect set to {left},{top} {width}x{Height} (game {width}x{height}, opacity {Opacity:0.##}, mapped {IsVisible})");
 			CanvasInfo.Width = width;
 			CanvasInfo.Height = height;
 		}
@@ -744,11 +752,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 			if(clickthrough)
 				User32.SetWindowExStyle(hwnd, User32.WsExTransparent);
 			else
-			{
 				User32.RemoveWindowExStyle(hwnd, User32.WsExTransparent);
-				// the pointer is over an overlay button, so X has to hand the click to the overlay
-				Wine.RaiseWithoutActivating(this);
-			}
 			return true;
 		}
 

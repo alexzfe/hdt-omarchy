@@ -11,8 +11,19 @@ namespace Hearthstone_Deck_Tracker.Utility
 	/// <summary>
 	/// Detection of, and workarounds for, running under Wine (Linux/macOS).
 	///
+	/// Two levels of detection are used:
+	/// <list type="bullet">
+	/// <item><see cref="IsWine"/>: any Wine. Gates the harmless changes (alpha-1 backgrounds,
+	/// diagnostics).</item>
+	/// <item><see cref="UsesX11Driver"/>: Wine's X11 driver (winex11.drv), i.e. X11 or XWayland.
+	/// Gates everything that assumes the X11 window model and the way Wayland compositors
+	/// (tested: Hyprland) treat it: override-redirect windows stacking above everything, the owner
+	/// becoming WM_TRANSIENT_FOR, and the overlay never being activated. Wine's own Wayland or
+	/// macOS drivers keep upstream HDT behaviour.</item>
+	/// </list>
+	///
 	/// Wine's X11 driver treats layered windows differently from Windows in ways that
-	/// break the transparent overlay on Wayland compositors (tested on Hyprland/XWayland):
+	/// break the transparent overlay on Wayland compositors:
 	///
 	/// - Every pixel with alpha == 0 is cut out of the X11 window's bounding shape.
 	///   XWayland then never draws those pixels, and the compositor shows them as opaque
@@ -27,28 +38,80 @@ namespace Hearthstone_Deck_Tracker.Utility
 	/// </summary>
 	public static class Wine
 	{
+		private static readonly object DetectionLock = new();
 		private static bool? _isWine;
+		private static bool? _usesX11Driver;
 
 		/// <summary>True when the process runs on Wine (ntdll exports wine_get_version).</summary>
 		public static bool IsWine
 		{
 			get
 			{
-				if(_isWine.HasValue)
+				lock(DetectionLock)
+				{
+					if(_isWine.HasValue)
+						return _isWine.Value;
+					try
+					{
+						var ntdll = GetModuleHandle("ntdll.dll");
+						_isWine = ntdll != IntPtr.Zero && GetProcAddress(ntdll, "wine_get_version") != IntPtr.Zero;
+					}
+					catch(Exception e)
+					{
+						Log.Warn($"Could not detect Wine: {e.Message}");
+						_isWine = false;
+					}
+					if(_isWine.Value)
+						Log.Info("Running under Wine; applying overlay workarounds");
 					return _isWine.Value;
-				try
-				{
-					var ntdll = GetModuleHandle("ntdll.dll");
-					_isWine = ntdll != IntPtr.Zero && GetProcAddress(ntdll, "wine_get_version") != IntPtr.Zero;
 				}
-				catch(Exception e)
+			}
+		}
+
+		/// <summary>
+		/// True when running under Wine's X11 driver. The driver is a PE module (winex11.drv) loaded
+		/// into every GUI process once a window exists; before that, a set DISPLAY variable with no
+		/// other driver loaded is taken as X11 without caching the answer.
+		/// </summary>
+		public static bool UsesX11Driver
+		{
+			get
+			{
+				if(!IsWine)
+					return false;
+				lock(DetectionLock)
 				{
-					Log.Warn($"Could not detect Wine: {e.Message}");
-					_isWine = false;
+					if(_usesX11Driver.HasValue)
+						return _usesX11Driver.Value;
+					try
+					{
+						if(GetModuleHandle("winex11.drv") != IntPtr.Zero)
+							_usesX11Driver = true;
+						else if(GetModuleHandle("winewayland.drv") != IntPtr.Zero || GetModuleHandle("winemac.drv") != IntPtr.Zero)
+							_usesX11Driver = false;
+						else
+							return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
+					}
+					catch(Exception e)
+					{
+						Log.Warn($"Could not detect the Wine graphics driver: {e.Message}");
+						_usesX11Driver = false;
+					}
+					Log.Info(_usesX11Driver.Value
+						? "Wine X11 driver detected; applying the X11/compositor overlay workarounds"
+						: "Wine is not using its X11 driver; keeping upstream overlay window handling");
+					return _usesX11Driver.Value;
 				}
-				if(_isWine.Value)
-					Log.Info("Running under Wine; applying overlay workarounds");
-				return _isWine.Value;
+			}
+		}
+
+		/// <summary>Test hook: forces the detection results. Pass null for both to detect again.</summary>
+		internal static void OverrideDetection(bool? isWine, bool? usesX11Driver)
+		{
+			lock(DetectionLock)
+			{
+				_isWine = isWine;
+				_usesX11Driver = usesX11Driver;
 			}
 		}
 
@@ -81,17 +144,45 @@ namespace Hearthstone_Deck_Tracker.Utility
 		/// <summary>
 		/// Wine only creates a popup as an unmanaged X11 window when its rectangle does not
 		/// cover a whole monitor. Returns a height that keeps the window one pixel short of
-		/// that when it would otherwise match the screen exactly.
+		/// that when it would otherwise cover the monitor the rectangle is on.
+		/// Coordinates are WPF device-independent units, as used for Window.Top/Left/Width/Height.
+		/// (In practice User32.GetHearthstoneRect already reports the client area one pixel short
+		/// in both directions, so this is a safety net for rounding under DPI scaling.)
 		/// </summary>
 		public static int AvoidFullScreenHeight(int top, int left, int width, int height)
 		{
-			if(!IsWine)
+			if(!UsesX11Driver)
 				return height;
-			var screenWidth = (int)SystemParameters.PrimaryScreenWidth;
-			var screenHeight = (int)SystemParameters.PrimaryScreenHeight;
-			if(left <= 0 && top <= 0 && left + width >= screenWidth && top + height >= screenHeight)
-				return Math.Max(0, screenHeight - top - 1);
-			return height;
+			return ClampToMonitor(top, left, width, height, MonitorBoundsDip(top, left, width, height));
+		}
+
+		/// <summary>Pure part of <see cref="AvoidFullScreenHeight"/>: <paramref name="monitor"/> is in the same units.</summary>
+		internal static int ClampToMonitor(int top, int left, int width, int height, Rect monitor)
+		{
+			var coversMonitor = left <= monitor.Left && top <= monitor.Top
+			                    && left + width >= monitor.Right && top + height >= monitor.Bottom;
+			if(!coversMonitor)
+				return height;
+			return Math.Max(0, (int)monitor.Bottom - top - 1);
+		}
+
+		/// <summary>Bounds of the monitor containing the centre of the rectangle, in device-independent units.</summary>
+		private static Rect MonitorBoundsDip(int top, int left, int width, int height)
+		{
+			try
+			{
+				var centre = new System.Drawing.Point(
+					(int)((left + width / 2.0) * Helper.DpiScalingX),
+					(int)((top + height / 2.0) * Helper.DpiScalingY));
+				var bounds = System.Windows.Forms.Screen.FromPoint(centre).Bounds;
+				return new Rect(bounds.Left / Helper.DpiScalingX, bounds.Top / Helper.DpiScalingY,
+					bounds.Width / Helper.DpiScalingX, bounds.Height / Helper.DpiScalingY);
+			}
+			catch(Exception e)
+			{
+				Log.Warn($"Could not determine the game's monitor, using the primary screen: {e.Message}");
+				return new Rect(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+			}
 		}
 
 		/// <summary>
@@ -117,11 +208,11 @@ namespace Hearthstone_Deck_Tracker.Utility
 
 		/// <summary>
 		/// Answers WM_MOUSEACTIVATE with MA_NOACTIVATE so clicks on the window do not activate it.
-		/// Wine makes an activated popup a managed window, which the compositor then tiles.
+		/// Wine's X11 driver makes an activated popup a managed window, which the compositor then tiles.
 		/// </summary>
 		public static void PreventMouseActivation(Window window)
 		{
-			if(!IsWine)
+			if(!UsesX11Driver)
 				return;
 			var source = HwndSource.FromHwnd(new WindowInteropHelper(window).Handle);
 			source?.AddHook((IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) =>
@@ -137,13 +228,15 @@ namespace Hearthstone_Deck_Tracker.Utility
 
 		/// <summary>
 		/// Makes <paramref name="owner"/> the Win32 owner of <paramref name="window"/> (or clears the owner
-		/// when it is zero). Wine turns the owner into the X11 WM_TRANSIENT_FOR hint when the window is
-		/// next mapped, and Wayland compositors then keep the window stacked with its owner: whenever the
-		/// game window is raised (clicked), the overlay is raised with it instead of ending up underneath.
+		/// when it is zero). Wine's X11 driver turns the owner into the WM_TRANSIENT_FOR hint when the
+		/// window is next mapped, and Wayland compositors then keep the window stacked with its owner:
+		/// whenever the game window is raised (clicked), the overlay is raised with it instead of ending
+		/// up underneath. The owner lives in another process; Wine clears such an owner itself when the
+		/// owner window is destroyed, so a game crash leaves the overlay unowned rather than destroyed.
 		/// </summary>
 		public static void SetOwner(Window window, IntPtr owner)
 		{
-			if(!IsWine)
+			if(!UsesX11Driver)
 				return;
 			try
 			{
@@ -154,35 +247,6 @@ namespace Hearthstone_Deck_Tracker.Utility
 				Log.Warn($"Could not set the window owner: {e.Message}");
 			}
 		}
-
-		/// <summary>
-		/// Puts <paramref name="window"/> at the top of the X11 stacking order without activating it.
-		/// The X server hands each click to the topmost X window under the pointer, whatever order the
-		/// compositor draws windows in. Hyprland restacks the game above the override-redirect overlay
-		/// whenever it activates the game, so the overlay's buttons stop getting clicks while the overlay
-		/// is still drawn on top. Skipped while the window is active, which would make Wine manage it.
-		/// Wine only restacks the X window when the Win32 z-order changes, and the overlay is usually
-		/// already first there (the compositor raised the game in X only), so it is briefly made
-		/// non-topmost to turn the request into a real change.
-		/// </summary>
-		public static void RaiseWithoutActivating(Window window)
-		{
-			if(!IsWine)
-				return;
-			var hwnd = new WindowInteropHelper(window).Handle;
-			if(hwnd == IntPtr.Zero || IsActiveWindow(hwnd))
-				return;
-			const uint flags = SwpNoSize | SwpNoMove | SwpNoActivate | SwpNoOwnerZOrder;
-			User32.SetWindowPos(hwnd, HwndNoTopmost, 0, 0, 0, 0, flags);
-			User32.SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, flags);
-		}
-
-		private static readonly IntPtr HwndTopmost = new(-1);
-		private static readonly IntPtr HwndNoTopmost = new(-2);
-		private const uint SwpNoSize = 0x0001;
-		private const uint SwpNoMove = 0x0002;
-		private const uint SwpNoActivate = 0x0010;
-		private const uint SwpNoOwnerZOrder = 0x0200;
 
 		/// <summary>Handle, title, class, process and owner of a window, for diagnostic log lines.</summary>
 		public static string DescribeWindow(IntPtr hwnd)
