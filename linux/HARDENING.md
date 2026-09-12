@@ -6,7 +6,7 @@ land; keep each fix a small commit so `omarchy` can take them one by one.
 **Status (2026-09-12, session 6):** sections A, B, D and E are done except where noted; C needs the
 user with the real game. Commits are listed next to each item. Everything on this
 branch builds (`linux/build.sh Release`, `dotnet build HDTTests`), passes shellcheck and the install
-smoke test. The Windows CI job has not run yet.
+smoke test. Both CI jobs pass on GitHub.
 
 ## A. Code (HDT source, all Wine-gated)
 
@@ -88,7 +88,8 @@ smoke test. The Windows CI job has not run yet.
 - [x] shellcheck, the install smoke test and a shim compile run in `linux-build`; HDTTests is
       compiled there. (`d6989bd3`)
 - [x] `windows-build.yml` restores upstream's build + MSTest steps (HearthWatcher.Test, HDTTests).
-      **Unverified until its first run on GitHub**: watch the Actions tab after the next push. (`d6989bd3`)
+      First run on GitHub (2026-09-12, `770cfe53` on `omarchy`): build succeeded, 21 + 306 tests
+      passed, 3m26s. `linux-build` passed too (build 1m51s, scripts 17s). (`d6989bd3`)
 - [x] `linux/tests/run-tests-wine.sh` runs the MSTest suites inside the Wine prefix with
       vstest.console (Microsoft.TestPlatform downloaded once to the cache). Session 6: the 8
       WineTests passed there (`/Tests:WineTests`); the full suites have not been run this way yet.
