@@ -91,11 +91,24 @@ the class `steam_app_hdt`, and Hearthstone/Battle.net inherit it when HDT launch
 
 - **Main window floats** (`^Hearthstone Deck Tracker$`): Hyprland tiles it by default, and resizing
   the WPF window to a tile breaks its layout.
-- **Hearthstone floats and fills the screen** (`^Hearthstone$`: `float`, `suppress_event` for
-  `fullscreen maximize`, and a `window.open` handler): the game opens as a floating window covering
-  the monitor minus the bar (the monitor's reserved area). It is not pinned, so it stays on its
-  workspace when you switch away. Its own fullscreen and maximize requests are ignored, so set
-  Hearthstone to windowed mode (Options > Graphics); `Super+F` still fullscreens it.
+- **Hearthstone floats with the geometry of a lone tile** (`^Hearthstone$`: `float`, `suppress_event`
+  for `fullscreen maximize`, and a `window.open` handler): the game opens as a floating window sized
+  and placed like a window tiled alone on the monitor (monitor minus bar, gaps and border), not
+  pinned, so it stays on its workspace when you switch away. It floats rather than tiles because
+  Hyprland draws floating windows above tiled ones: a tiled game could never cover HDT's floating
+  main window, while a floating game is raised above it whenever you click it. Its own fullscreen
+  and maximize requests are ignored, so set Hearthstone to windowed mode (Options > Graphics);
+  `Super+F` still fullscreens it. `Super+O` (Omarchy's pop toggle) tiles an already floating window on
+  the first press and pops it out on the second. The handler re-checks the placement every
+  500 ms for 30 s after the window opens (`hl.timer`), because Wine reserves room for the title bar
+  and borders it expects the window manager to draw around a decorated window; Hyprland draws no
+  frame, so whenever the game applies its own window size (its saved windowed resolution at
+  startup, or a change in Options) Wine re-positions the window by that phantom frame and it ends
+  up hanging off the bottom-right of the screen, e.g. at (12,56) or (4,73). A move from the
+  compositor is honoured, so the re-check just puts it back; it stops as soon as the game is pinned.
+  The resolution shown in Hearthstone's options reads "Custom" because the game only lists the
+  display modes Xwayland exposes (the monitor's own mode and a few smaller 4:3 ones), which is
+  harmless.
 - **Battle.net floats** (`^Battle\.net`): launcher and login window.
 - **The overlay is excluded from focus and kept on the game's workspace** (`^HearthstoneOverlay$`:
   `no_focus`, plus Lua event handlers):
@@ -106,15 +119,18 @@ the class `steam_app_hdt`, and Hearthstone/Battle.net inherit it when HDT launch
     override-redirect). With `no_focus` the hit test skips the overlay and the game underneath gets
     all of that; keyboard focus reaches the game, and clicks still reach the overlay's buttons because
     Wine gives the click-through overlay an empty X11 input shape, which Xwayland honours.
-  - Workspace: Hyprland puts an override-redirect window on whichever workspace is active when it maps
-    or its X geometry changes by more than 2 px, never on its owner's. The overlay used to be pinned,
-    which kept it above a pinned or fullscreen game but also showed it on every workspace. The
-    handlers now move it to the game's workspace (`window.open`, `window.move_to_workspace`,
-    `workspace.active`, `config.reloaded`) and pin it only while the game is pinned (`Super+O`). After
-    the game's fullscreen state changes they raise it (`alter_zorder top`), because a fullscreen
-    transition clears an "allowed over fullscreen" flag on every unpinned window on the workspace
-    and only a raise sets it again.
-  Do **not** add `center`/`size` (they displace the override-redirect window) or `pin`.
+  - Workspace and stacking: Hyprland puts an override-redirect window on whichever workspace is
+    active when it maps or its X geometry changes by more than 2 px, never on its owner's, and it
+    draws the focused floating game above the overlay every time the game is (re)focused, so an
+    unpinned overlay is invisible until its geometry changes again ("the overlay only shows after I
+    change the resolution"). Pinned windows are drawn in a final pass above everything else, but a
+    pinned window shows on every workspace. The handlers therefore pin the overlay only while the
+    game's workspace is active (or the game itself is pinned by `Super+O`), and unpin it and park it
+    on the game's workspace when you switch away (`window.open`, `window.move_to_workspace`,
+    `window.pin`, `workspace.active`, `config.reloaded`). After the game's fullscreen state changes
+    they also raise it (`alter_zorder top`), because a fullscreen transition clears an "allowed over
+    fullscreen" flag on every unpinned window on the workspace and only a raise sets it again.
+  Do **not** add `center`/`size` (they displace the override-redirect window) or a static `pin`.
 - **Why the overlay stays above a pinned game after clicks** (HDT source, not a rule): Hyprland raises
   a floating window on every click, and among pinned windows the last-raised one is drawn on top,
   so a pinned game would cover the pinned overlay after its first click. Under Wine the overlay now
@@ -124,9 +140,9 @@ the class `steam_app_hdt`, and Hearthstone/Battle.net inherit it when HDT launch
   game window handle changes (quick restart), the overlay re-owns and remaps itself (log:
   `Game window changed, remapping the overlay under the new owner`).
 
-Plain (non-Lua) Hyprland config equivalent of the rules. The fill-the-screen and workspace handlers
-need the Lua config; without them the game opens centred at its own size and the overlay stays on the
-workspace that was active when it appeared:
+Plain (non-Lua) Hyprland config equivalent of the rules. The placement and overlay handlers need the
+Lua config; without them the game opens centred at its own size and the overlay stays on the workspace
+that was active when it appeared:
 
 ```
 windowrule = float on, center on, size 1400 900, match:class ^steam_app_hdt$, match:title ^Hearthstone Deck Tracker$
