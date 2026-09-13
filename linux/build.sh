@@ -5,6 +5,9 @@
 # EnableWindowsTargeting). If the build dependencies are missing, linux/fetch-deps.sh is run first.
 #
 # Usage: linux/build.sh [Debug|Release]   (default: Release)
+#
+# Crash reporting: the build leaves HDT's Sentry DSN empty, so the fork never reports crashes to
+# HearthSim's Sentry project. Set HDT_SENTRY_DSN to report to a project of your own instead.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,9 +27,15 @@ if [ ! -f "$REPO_ROOT/lib/HearthMirror.dll" ]; then
 fi
 
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
-echo "Building HDT ($CONFIG) ..."
+SENTRY_PROPS=(-p:HdtDisableSentry=true)
+if [ -n "${HDT_SENTRY_DSN:-}" ]; then
+  SENTRY_PROPS=("-p:SENTRY_DSN=$HDT_SENTRY_DSN")
+  echo "Building HDT ($CONFIG) with crash reporting to $HDT_SENTRY_DSN ..."
+else
+  echo "Building HDT ($CONFIG, crash reporting disabled) ..."
+fi
 dotnet build "$HDT_DIR/Hearthstone Deck Tracker.csproj" \
-  -c "$CONFIG" -p:EnableWindowsTargeting=true -p:Platform=x64 -v q -nologo
+  -c "$CONFIG" -p:EnableWindowsTargeting=true -p:Platform=x64 "${SENTRY_PROPS[@]}" -v q -nologo
 
 OUT="$HDT_DIR/bin/x64/$CONFIG"
 [ -f "$OUT/HearthstoneDeckTracker.exe" ] || { echo "build produced no exe" >&2; exit 1; }

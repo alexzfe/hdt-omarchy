@@ -29,7 +29,7 @@ fi
 export PATH="$HOME/.dotnet:$PATH" DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 for proj in HDTTests/HDTTests.csproj HearthWatcher.Test/HearthWatcher.Test.csproj; do
   echo "Building $proj ($CONFIG) ..."
-  dotnet build "$REPO_ROOT/$proj" -c "$CONFIG" -p:EnableWindowsTargeting=true -p:Platform=x64 -v q -nologo
+  dotnet build "$REPO_ROOT/$proj" -c "$CONFIG" -p:EnableWindowsTargeting=true -p:Platform=x64 -p:HdtDisableSentry=true -v q -nologo
 done
 
 rm -rf "$WINTMP_UNIX"; mkdir -p "$WINTMP_UNIX/results"

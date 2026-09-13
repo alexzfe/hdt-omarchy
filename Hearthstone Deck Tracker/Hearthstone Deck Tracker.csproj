@@ -69,7 +69,9 @@
 
   <PropertyGroup>
     <SentryDsn>$(SENTRY_DSN)</SentryDsn>
-    <SentryDsn Condition="'$(SentryDsn)' == ''">https://63f3118ab76da59e220c259639c60330@o35918.ingest.us.sentry.io/80405</SentryDsn>
+    <!-- HdtDisableSentry=true (set by linux/build.sh) leaves the DSN empty, which disables the Sentry SDK:
+         crashes of the Linux/Wine fork must not land in HearthSim's project. -->
+    <SentryDsn Condition="'$(SentryDsn)' == '' and '$(HdtDisableSentry)' != 'true'">https://63f3118ab76da59e220c259639c60330@o35918.ingest.us.sentry.io/80405</SentryDsn>
     <!-- when unset SentryReporter falls back to Squirrel/Portable, based on the build configuration -->
     <SentryEnvironment>$(SENTRY_ENVIRONMENT)</SentryEnvironment>
   </PropertyGroup>

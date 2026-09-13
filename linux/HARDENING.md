@@ -37,6 +37,10 @@ smoke test. Both CI jobs pass on GitHub.
       restart it: expect `Game window changed, remapping the overlay under the new owner`).
 - [x] **csproj change is conditional.** `ExecuteAsTool="$(HdtStringsResGenAsTool)"`, false only when
       `$(OS) != Windows_NT`. (`a9483ae5`)
+- [x] **No crash reports to HearthSim.** The Release build used to bake upstream's production Sentry DSN
+      (csproj fallback when `SENTRY_DSN` is empty), so Wine crashes were reported into HearthSim's
+      project as "Portable". `HdtDisableSentry=true`, passed by `linux/build.sh`, leaves the DSN empty
+      and the SDK disabled; `HDT_SENTRY_DSN` points the build at a project of your own. (session 8)
 - [x] **Build version in the log.** `install.sh` writes `VERSION`; HDT logs `hdt-omarchy build: ...`
       at Wine detection. (`35308dc5`, `33279681`)
 
