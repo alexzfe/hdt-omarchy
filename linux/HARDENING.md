@@ -1,12 +1,13 @@
-# Production-hardening checklist (branch `production-hardening`, merges into `omarchy`)
+# Production-hardening checklist (`omarchy` branch)
 
-Review of the fork's additions as of `cfd18843` plus the session-5 diagnostics. Tick items as they
-land; keep each fix a small commit so `omarchy` can take them one by one.
+Review of the fork's additions as of `cfd18843` plus the session-5 diagnostics, done on the
+`production-hardening` branch, which was merged into `omarchy` at `770cfe53` and deleted. Tick items
+as they land; keep each fix a small commit.
 
-**Status (2026-09-12, session 6):** sections A, B, D and E are done except where noted; C needs the
-user with the real game. Commits are listed next to each item. Everything on this
-branch builds (`linux/build.sh Release`, `dotnet build HDTTests`), passes shellcheck and the install
-smoke test. Both CI jobs pass on GitHub.
+**Status (2026-09-13):** sections A, B, D and E are done except where noted. Section C lists the
+real-game checks: what has been confirmed, with the session and evidence, and what is still missing,
+with the exact steps. Everything on `omarchy` builds (`linux/build.sh Release`, `dotnet build
+HDTTests`), passes shellcheck and the install smoke test, and both CI jobs pass on GitHub.
 
 ## A. Code (HDT source, all Wine-gated)
 
@@ -32,9 +33,10 @@ smoke test. Both CI jobs pass on GitHub.
       logged only with the raise (15:33). (`10f2e15b`, `5240c7e9`)
 - [ ] **Game-window owner lifecycle.** Wine clears a cross-process owner when the owner window is
       destroyed (win32u `NtUserDestroyWindow` sets the owner of other-thread owned windows to 0), so
-      a game crash should leave the overlay unowned, and the poller re-owns on the next game window.
-      Documented in `Wine.SetOwner`; **not yet exercised** (kill Hearthstone while HDT runs, then
-      restart it: expect `Game window changed, remapping the overlay under the new owner`).
+      a game crash leaves the overlay unowned, and the next game window is owned afresh. Documented
+      in `Wine.SetOwner`. Kill half done (session 8, 2026-09-12 18:28: `Exited game`, owner cleared by
+      `UnhookGameWindow` without a warning, HDT kept running and shut down cleanly). Restart half
+      still open: see C.
 - [x] **csproj change is conditional.** `ExecuteAsTool="$(HdtStringsResGenAsTool)"`, false only when
       `$(OS) != Windows_NT`. (`a9483ae5`)
 - [x] **No crash reports to HearthSim.** The Release build used to bake upstream's production Sentry DSN
@@ -59,31 +61,70 @@ smoke test. Both CI jobs pass on GitHub.
       packages give the 32-bit half. The launcher comment and README say the shim reaches every
       process umu starts. Shim init is now safe under concurrent first calls. (`35308dc5`)
 - [x] **Version stamp, uninstall.** `VERSION` file; `install.sh --uninstall`. (`35308dc5`)
+- [ ] **Upgrades wipe the install directory's `Plugins/`.** HDT creates `Plugins/` next to the exe and
+      loads plugins from there as well as from `%AppData%\HearthstoneDeckTracker\Plugins`; `rsync
+      --delete` removes it on every re-install (same for decks/config if a user turns off "save in
+      AppData"). Fix: exclude `Plugins/` from the delete, or document the AppData folder as the place.
 
 ## C. Verification (real game, record the result in `linux/README.md`)
 
-- [x] Super+O (pinned game), moving, resizing (user, end of session 4)
-- [x] Fullscreen -> windowed (user, session 5, 15:02)
-- [x] Battlegrounds tabs at ordinary windowed sizes, e.g. 1541x1110 (user, session 5, 15:33, with the raise)
-- [ ] Battlegrounds tabs at the 1299x899 pop-out size: still dead even with the raise (no `ToggleTab`
-      logged), so the remaining limit is in HDT's own layout or hit testing at that scale, not X
-      stacking. User accepts it for now.
-- [x] **This branch's HEAD with the real game.** User (2026-09-12): "deck tracker works well" on
-      `087341a5`; branch merged into `omarchy`. Original note: `087341a5` was built and installed at 15:47
-      (`~/.local/share/hearthstone-deck-tracker/app/VERSION`). Re-check with the real game: tabs at
-      windowed size, Super+O, fullscreen both ways, background hide/show, and that `hdt_log.txt`
-      shows `Wine X11 driver detected` and `hdt-omarchy build: 087341a5 ...`. If the overlay behaves
-      worse than the session-5 15:27 build, the differences are the X11-driver gate, ApplyOpacity,
-      the per-monitor clamp and the bounded hand-back (`10f2e15b`).
-- [x] Background hide/show with the real game (part of the 087341a5 confirmation above)
-- [ ] Overlay stays override-redirect after a real click on an overlay button
-- [ ] Battle.net float rule
-- [ ] Fresh `install.sh` on a clean Omarchy config (smoke test covers the logic; one real run after
-      `omarchy refresh hyprland` still worth doing)
-- [ ] Classic-syntax rules in `linux/README.md`
-- [ ] Multi-monitor and DPI scaling
-- [ ] A full match with HearthMirror reads (`ScryMemoryAccessException` on login still appears)
-- [ ] Game-window owner lifecycle (see A)
+Layout under test since session 8 (2026-09-13, commit `a66a12ea`): the game floats at the geometry of
+a lone tile, unpinned; the overlay is pinned only while the game's workspace is active. Anything
+ticked before session 7 was verified with the older pinned-overlay or float-and-fill layouts and is
+kept for the record.
+
+### Confirmed
+
+- [x] Super+O (pinned game), moving, resizing (user, end of session 4). Re-confirmed with the current
+      layout: Super+O pins game and overlay together and the overlay is visible afterwards (user,
+      session 8, 2026-09-13 02:37; note Omarchy's toggle tiles an already floating window on the
+      first press and pops it out on the second).
+- [x] Fullscreen -> windowed (user, session 5, 15:02).
+- [x] Battlegrounds tabs at ordinary windowed sizes, e.g. 1541x1110 (user, session 5, 15:33, with the
+      raise). Tab clicks and an hour of Battlegrounds (session 7, 2026-09-12 17:11-18:11, BobsBuddy
+      combat lines and game results in the log) with the overlay staying override-redirect: no
+      "overlay turned into a tiled window" report since the WM_MOUSEACTIVATE fix.
+- [x] Background hide/show with the real game (part of the 087341a5 confirmation, session 6).
+- [x] Battle.net float rule: login window 362x693 and main window 1000x1150 both floating and centred
+      (compositor event log, session 8, 2026-09-12 19:26 and 2026-09-13 02:36).
+- [x] A full match with HearthMirror reads: the session-7 Battlegrounds hour ran BobsBuddy on every
+      combat (needs board reads) and recorded results. `ScryInitializationException` /
+      `ScryMemoryAccessException` bursts appear only at login and at game exit and are harmless.
+- [x] Game opens floating at the lone-tile geometry and stays there: 12,38 1896x1150 for 45 s after
+      the window opened, no Wine drift (session 8, 2026-09-13 03:06).
+- [x] Overlay pinned on map and drawn over the game in the Battlegrounds lobby without any user
+      action; HDT's main window covered by the game (screenshot, session 8, 2026-09-13 03:07).
+- [x] Workspace switch away and back: overlay unpinned and parked on the game's workspace while
+      workspaces 1 and 3 were active, pinned again on return (session 8, 2026-09-13 03:07:31-35).
+- [x] Game killed while HDT runs: clean unhook, no warnings, HDT keeps running (session 8, 18:28).
+
+### Missing (steps, and what to look for)
+
+- [ ] **Game restart while HDT keeps running.** Close or kill Hearthstone, launch it again from
+      Battle.net without restarting HDT. Expect a second `Game window set as the overlay owner` line
+      in `hdt_log.txt`, the game back at the tile geometry, and the overlay visible over it.
+- [ ] **HDT restart while the game keeps running.** Quit HDT (or kill it), start it again with the game
+      open. Expect `Overlay Hidden -> Visible`, the owner line, the overlay pinned and visible.
+- [ ] **Super+F with the pinned overlay.** With the game focused press Super+F, play a few seconds,
+      press Super+F again. Expect the overlay drawn over the fullscreen game both ways
+      (`hyprctl clients -j`: overlay `pinned` true while on the game's workspace) and back over the
+      windowed game; no `Overlay ... -> Hidden` in the log.
+- [ ] **In-game resolution change.** Options > Graphics, pick another resolution, then back. Expect the
+      game to stay inside the screen (the placement re-check runs only for 30 s after open, so a
+      later change may leave it offset by Wine's phantom frame: note the position if so).
+- [ ] **Fresh `install.sh` after `omarchy refresh hyprland`.** Run `omarchy refresh hyprland`
+      (rewrites `~/.config/hypr/hyprland.lua`), then `linux/install.sh`. Expect exactly one
+      `hypr.hearthstone-deck-tracker` require line appended, a `.bak.*` backup next to it,
+      `hyprctl configerrors` clean, and the rules active on the next game launch.
+- [ ] **Classic-syntax rules** in `linux/README.md`: on a Hyprland with a `hyprland.conf` (no Lua),
+      paste the four `windowrule` lines; expect the main window and Battle.net floating and the game
+      floating. The placement and overlay handlers do not exist there (documented).
+- [ ] **Multi-monitor and DPI scaling.** With a second monitor: launch the game on each monitor;
+      expect the tile geometry of that monitor (`tile_box` uses the game's monitor) and the overlay
+      following it. With `monitor` scale 1.25 or 1.5: expect the overlay aligned with the game
+      (`Wine.AvoidFullScreenHeight` and `tile_box` both divide by scale) and the tabs clickable.
+- [ ] **Battlegrounds tabs at the 1299x899 pop-out size.** Known limit: no `ToggleTab` logged even
+      with the X raise, so the cause is HDT's own layout or hit testing at that scale. User accepts it.
 
 ## D. Tests and CI
 
