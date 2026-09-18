@@ -236,13 +236,38 @@ the Win32 z-order and never restacks the X window. It runs when the pointer ente
 after the game window moves or resizes, and when the game regains focus. It is skipped while the
 overlay is Wine's active window, the condition that would make Wine hand it to the window manager.
 
+## Duplicate click delivery under Wine
+
+Under Wine's X11 driver a single physical click on the click-through overlay window is delivered
+**twice**. Measured with a debug line in `OverlayButton.OnMouseUp` against the real game, one click
+on a Battlegrounds tab:
+
+```
+MouseUp: button=Left, clicks=1, ts=8975961  -> "guides tab ... opened"
+MouseUp: button=Left, clicks=1, ts=8975957  -> "guides tab ... closed"
+```
+
+Both events carry `ChangedButton=Left` and `ClickCount=1`, their timestamps are 4 ms apart, and they
+were processed in reverse order. Because the tab commands toggle, the second delivery undoes the
+first immediately and the tab only flashes up - it looks exactly like a button that never receives
+the click. A non-toggling button would show the same fault as a double execution instead.
+
+`OverlayButton` therefore drops a MouseUp whose timestamp is within 50 ms of the last one it handled,
+guarded by `Wine.IsWine` so Windows behaviour is unchanged.
+
+Ruled out by measurement in that environment: window size (the diagnostic line reported overlay
+1883x1004 and content max height 971-975, well above the sizes in the note below) and visibility
+(no `UpdateVisibility` change during the clicks).
+
 ## Known issues
 
 - **Overlay buttons at the smallest pop-out size.** With the X stacking fix above, the Battlegrounds
   Comps/Minions tabs work fullscreen and with a windowed game down to at least 1541x1110 (real-game
-  test). At Omarchy's `Super+O` pop-out size (1300x900) they still do not respond: the click never
-  reaches the button. X stacking is not the cause at that size; it is probably HDT's own click-through
-  detection or layout at that scale. Workaround: make the game window larger, or fullscreen.
+  test). At Omarchy's `Super+O` pop-out size (1300x900) they were reported as unresponsive, which led
+  to the assumption that the click never reaches the button at that scale. At least part of that is
+  the duplicate delivery described above, which is size-independent and now handled; whether anything
+  size-specific remains at 1300x900 has not been re-tested since. Workaround if it does: make the game
+  window larger, or fullscreen.
 - **Overlay after leaving fullscreen.** Reported once (the overlay stayed gone after fullscreen →
   windowed); it no longer reproduces with the real game or in the test bench, and no specific fix was
   identified. If it comes back, the `hyprctl clients -j` fields `pinned`, `allowedOverFullscreen` and

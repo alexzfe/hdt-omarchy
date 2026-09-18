@@ -1,7 +1,9 @@
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using Hearthstone_Deck_Tracker.Utility;
+using Hearthstone_Deck_Tracker.Utility.Logging;
 
 namespace Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds;
 
@@ -31,6 +33,16 @@ public class OverlayButton : Border
 	public event RoutedEventHandler? Click;
 
 	private bool _canExecute = true;
+
+	// Under Wine's X11 driver a single physical click on the click-through overlay window arrives
+	// TWICE: two MouseUp events, both ChangedButton=Left and ClickCount=1, timestamps 4 ms apart
+	// and occasionally processed in reverse order (measured against the real game, 1883x1004
+	// overlay). For a toggling command such as the Battlegrounds tabs the second delivery undoes
+	// the first immediately, which looks like a dead button - the tab only flashes up. So drop a
+	// MouseUp that repeats the last handled one within a short window. Wine only; on Windows the
+	// behaviour is unchanged.
+	private const int WineDuplicateClickWindowMs = 50;
+	private int? _lastHandledTimestamp;
 
 	public ICommand? Command
 	{
@@ -82,6 +94,17 @@ public class OverlayButton : Border
 
 		if(!IsEnabled)
 			return;
+
+		if(Wine.IsWine)
+		{
+			if(_lastHandledTimestamp is int last && Math.Abs(e.Timestamp - last) <= WineDuplicateClickWindowMs)
+			{
+				Log.Debug($"Dropped duplicate MouseUp delivered by Wine (ts={e.Timestamp}, previous={last})");
+				e.Handled = true;
+				return;
+			}
+			_lastHandledTimestamp = e.Timestamp;
+		}
 
 		var command = Command;
 		var commandParameter = CommandParameter;
