@@ -562,6 +562,24 @@ namespace Hearthstone_Deck_Tracker
 			HandleOpponentHandCostReduction(thaurissans.Count);
 		}
 
+		private void HandleMotherCostReduction(Entity entity)
+		{
+			if(entity.CardId != HearthDb.CardIds.Collectible.Neutral.MOTHER || !entity.HasTag(CARD_TARGET))
+				return;
+			if(!_game.Entities.TryGetValue(entity.GetTag(CARD_TARGET), out var target))
+				return;
+
+			var targetZonePos = target.ZonePosition;
+			foreach(var handCard in _game.Opponent.Hand)
+			{
+				if(handCard.Id == entity.Id)
+					continue;
+				var reduction = 5 - Math.Abs(handCard.ZonePosition - targetZonePos);
+				if(reduction > 0)
+					handCard.Info.CostReduction += reduction;
+			}
+		}
+
 		private void HandleIncindiusEndOfTurn(bool isOpponent, int turn)
 		{
 			var player = isOpponent ? _game.Opponent : _game.Player;
@@ -801,7 +819,6 @@ namespace Hearthstone_Deck_Tracker
 				if(_game.CurrentGameMode == Spectator && _game.CurrentGameStats.Result == GameResult.None)
 				{
 					Log.Info("Game was spectator mode without a game result. Probably exited spectator mode early.");
-					SentryReporter.DropBattlegroundsEvents("spectator_no_result");
 					return;
 				}
 				var player = _game.Entities.FirstOrDefault(e => e.Value?.IsPlayer ?? false).Value;
@@ -1265,20 +1282,29 @@ namespace Hearthstone_Deck_Tracker
 					LastGames.Save();
 				}
 			}
-			else if(_assignedDeck != null && _game.CurrentGameStats != null && _assignedDeck.DeckStats.Games.Contains(_game.CurrentGameStats))
+			else if(_game.CurrentGameStats != null)
 			{
-				//game was not supposed to be recorded, remove from deck again.
-				_assignedDeck.RemoveGameResult(_game.CurrentGameStats);
-				Log.Info($"Local deck stats are disabled for {_game.CurrentGameMode}. Removed game from {_assignedDeck}.");
-			}
-			else if(_assignedDeck == null)
-			{
-				var defaultDeck = DefaultDeckStats.Instance.GetDeckStats(_game.Player.OriginalClass);
-				if(defaultDeck != null)
+				if(_assignedDeck != null)
 				{
-					if(_game.CurrentGameStats != null)
+					if(_assignedDeck.DeckStats.Games.Contains(_game.CurrentGameStats))
+					{
+						//game was not supposed to be recorded, remove from deck again.
+						_assignedDeck.RemoveGameResult(_game.CurrentGameStats);
+						Log.Info(
+							$"Local deck stats are disabled for {_game.CurrentGameMode}. Removed game from {_assignedDeck}."
+						);
+					}
+				}
+				else if(!_game.IsBattlegroundsMatch)
+				{
+					var defaultDeck = DefaultDeckStats.Instance.GetDeckStats(_game.Player.OriginalClass);
+					if(defaultDeck != null && defaultDeck.Games.Contains(_game.CurrentGameStats))
+					{
 						defaultDeck.Games.Remove(_game.CurrentGameStats);
-					Log.Info($"Local deck stats are disabled for {_game.CurrentGameMode}. Removed game from default {_game.Player.OriginalClass}.");
+						Log.Info(
+							$"Local deck stats are disabled for {_game.CurrentGameMode}. Removed game from default {_game.Player.OriginalClass}."
+						);
+					}
 				}
 			}
 		}
@@ -2671,6 +2697,7 @@ namespace Hearthstone_Deck_Tracker
 		public void HandleOpponentPlay(Entity entity, string? cardId, int from, int turn)
 		{
 			_game.Opponent.Play(entity, turn);
+			HandleMotherCostReduction(entity);
 			PredictFabled(entity);
 			Core.UpdateOpponentCards();
 			var card = Database.GetCardFromId(cardId);

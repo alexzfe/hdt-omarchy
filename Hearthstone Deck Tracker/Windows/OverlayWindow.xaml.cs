@@ -538,8 +538,11 @@ namespace Hearthstone_Deck_Tracker.Windows
 			}
 		}
 
-		internal bool ShouldShowBgsMinionPinning()
+		private bool ShouldShowBgsMinionPinning()
 		{
+			if(!Config.Instance.ShowBattlegroundsBrowser)
+				return false;
+
 			if(!Config.Instance.ShowBattlegroundsTavernMarkers)
 				return false;
 
@@ -552,6 +555,11 @@ namespace Hearthstone_Deck_Tracker.Windows
 			var gameId = _game.MetaData.ServerInfo?.GameHandle;
 			var userHasTier7 = (HSReplayNetOAuth.AccountData?.IsTier7 ?? false) || Tier7Trial.IsTrialForCurrentGameActive(gameId);
 			return userHasTier7;
+		}
+
+		internal void UpdateBgsMinionPinningVisibility()
+		{
+			BgsMinionPinningVisibility = ShouldShowBgsMinionPinning() ? Visible : Collapsed;
 		}
 
 		internal void ShowQuickGuide()
@@ -1216,7 +1224,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 
 			BattlegroundsCompsGuidesVM.OnMatchStart();
 
-			BgsMinionPinningVisibility = ShouldShowBgsMinionPinning() ? Visible : Collapsed;
+			UpdateBgsMinionPinningVisibility();
 			_bgsTopBarBehavior.Show();
 
 			// coming from the lobby the bar is already up, so it has to be re-measured for the wider content
@@ -1753,14 +1761,15 @@ namespace Hearthstone_Deck_Tracker.Windows
 
 		private IReadOnlyList<string>? _pendingBgsCombatChoices;
 
-		internal void SetChoicesVisible(bool choicesVisible, IEnumerable<string>? cardIds)
+		internal void SetChoicesVisible(bool choicesVisible, bool isShopChoice, IEnumerable<string>? cardIds)
 		{
 			BattlegroundsTrinketPickingViewModel.ChoicesVisible = choicesVisible;
 
 			if(_game.IsBattlegroundsMatch)
 			{
 				var cardIdList = (cardIds ?? Array.Empty<string>()).ToList();
-				if(!choicesVisible || !cardIdList.Any())
+				// shop choices (Timewarp tavern) look like the regular shop, not like floating discover cards
+				if(!choicesVisible || isShopChoice || !cardIdList.Any())
 				{
 					_pendingBgsCombatChoices = null;
 					OpacityMaskOverlay.RemoveMaskedRegion("DiscoverCard");
@@ -1808,9 +1817,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 
 			var gameId = _game.MetaData.ServerInfo?.GameHandle;
 			var userHasTier7 = (HSReplayNetOAuth.AccountData?.IsTier7 ?? false) || Tier7Trial.IsTrialForCurrentGameActive(gameId);
-			var currentPeriod = Remote.BattlegroundsMetaPeriods.Data?
-				.OrderByDescending(p => p.PeriodStart)
-				.FirstOrDefault();
+			var currentPeriod = Remote.BattlegroundsLiveMetaPeriod.Data;
 			var hasTimewarpMechanic = currentPeriod?.Mechanics?.Contains("timewarp") ?? false;
 
 			if(args.IsActive && boardCards.Count > 0 && userHasTier7 && hasTimewarpMechanic)

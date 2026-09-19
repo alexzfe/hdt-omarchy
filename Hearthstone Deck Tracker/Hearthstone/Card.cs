@@ -22,7 +22,6 @@ using Hearthstone_Deck_Tracker.Utility.Logging;
 using Hearthstone_Deck_Tracker.Utility.MVVM;
 using Hearthstone_Deck_Tracker.Utility.Themes;
 using Newtonsoft.Json;
-using NuGet;
 
 #endregion
 
@@ -166,7 +165,10 @@ namespace Hearthstone_Deck_Tracker.Hearthstone
 				if(!wasPlayed)
 				{
 					var entitiesInDeck = ControllerPlayer.Deck.Where(x => x.CardId == Id);
-					var entitiesInHand = ControllerPlayer.Hand.Where(x => x.CardId == Id && x.Info.Hidden);
+					// Created tokens (Ectoplasm, Fizzle's Snapshot) are listed straight from hand and
+					// are never Hidden, so they need matching too - the card list row for one *is* that
+					// entity, and its stored cards are the whole point of hovering it.
+					var entitiesInHand = ControllerPlayer.Hand.Where(x => x.CardId == Id && (x.Info.Hidden || x.Info.Created));
 					entities = entitiesInDeck.Concat(entitiesInHand).OrderBy(x => x.Id);
 				}
 				else

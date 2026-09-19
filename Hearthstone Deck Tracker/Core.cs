@@ -333,7 +333,7 @@ namespace Hearthstone_Deck_Tracker
 			Influx.OnUnevenPermissions();
 			Application.Current.Dispatcher.Invoke(() =>
 			{
-				MainWindow.ShowMessage(LocUtil.Get("MessageDialogs_Permissions_Title"), LocUtil.Get("MessageDialogs_Permissions_Description")).Forget();
+				MainWindow.ShowUnevenPermissionsMessage().Forget();
 				MainWindow.ActivateWindow();
 			});
 		}
@@ -671,7 +671,7 @@ namespace Hearthstone_Deck_Tracker
 
 		internal static void UpdatePlayerResourcesWidget()
 		{
-			var shouldShowMaxGold = Game.IsBattlegroundsMatch && Game.Player.MaxGold > Player.InitialMaxGold;
+			var shouldShowMaxGold = Game.Player.ShouldShowMaxGold;
 			var shouldShowCorpsesLeft = CorpsesCounterDescriptor.IsVisible(true, false);
 
 			Overlay.UpdatePlayerResourcesWidget(Game.Player.MaxHealth, Game.Player.MaxMana, Game.Player.MaxHandSize,

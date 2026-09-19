@@ -13,8 +13,8 @@ using Hearthstone_Deck_Tracker.Hearthstone;
 using Hearthstone_Deck_Tracker.Hearthstone.EffectSystem;
 using Hearthstone_Deck_Tracker.Hearthstone.Entities;
 using Hearthstone_Deck_Tracker.LogReader.Interfaces;
+using Hearthstone_Deck_Tracker.Utility.Extensions;
 using Hearthstone_Deck_Tracker.Utility.Logging;
-using NuGet;
 using static HearthDb.CardIds;
 using static Hearthstone_Deck_Tracker.LogReader.LogConstants.PowerTaskList;
 
@@ -268,7 +268,10 @@ namespace Hearthstone_Deck_Tracker.LogReader.Handlers
 						&& deadMinion.IsMinion
 					)
 					{
-						if(deadMinion.Card.IsMech())
+						// The card's static race misses a minion made a Mech by an enchantment (Amalgamation);
+						// the live CARDRACE tag carries it.
+						var liveRace = (Race)deadMinion.GetTag(GameTag.CARDRACE);
+						if(deadMinion.Card.IsMech() || liveRace == Race.MECHANICAL || liveRace == Race.ALL)
 						{
 							var isGolden = cardId == NonCollectible.Neutral.AncestralAutomaton_AncestralAutomaton;
 							var sourceZone = deadMinion.GetTag(GameTag.ZONE);
@@ -1571,10 +1574,16 @@ namespace Hearthstone_Deck_Tracker.LogReader.Handlers
 								}
 								break;
 							case Collectible.Priest.SlimeEm:
-								game.Player.SlimedMinions.Clear();
-								game.Player.SlimedMinions.AddRange(game.Player.Minions);
-								game.Opponent.SlimedMinions.Clear();
-								game.Opponent.SlimedMinions.AddRange(game.Opponent.Minions);
+								// Snapshot both boards before the spell destroys them. The Ectoplasm tokens are
+								// created later in this same block; EctoplasmCreated copies the matching side's
+								// snapshot onto each token, so several Ectoplasms in hand each keep the board
+								// their own Slime 'em! destroyed.
+								gameState.SlimedMinions.Clear();
+								foreach(var slimedPlayer in new[] { game.Player, game.Opponent })
+								{
+									if(slimedPlayer.Id > 0)
+										gameState.SlimedMinions[slimedPlayer.Id] = SnapshotSlimedMinions(slimedPlayer);
+								}
 								break;
 							case NonCollectible.Priest.Repackage_RepackagedBoxToken:
 								foreach(var card in actionStartingEntity?.Info.StoredCardIds ?? new List<string>())
@@ -2046,6 +2055,20 @@ namespace Hearthstone_Deck_Tracker.LogReader.Handlers
 			var cardIdMatch = CardIdRegex.Match(target);
 			return !cardIdMatch.Success ? null : cardIdMatch.Groups["cardId"].Value.Trim();
 		}
+
+		/// <summary>
+		/// The card ids Slime 'em! will hand back to <paramref name="player"/>, in the order the
+		/// Ectoplasm grid shows them (most expensive first, duplicates kept - two copies of a minion
+		/// on board are two resummons). LatestCardId, not CardId: what gets resummoned is the minion
+		/// as it stood on board, which may have transformed since it was played.
+		/// </summary>
+		private static List<string> SnapshotSlimedMinions(Player player) =>
+			player.Minions
+				.Select(entity => entity.Info.LatestCardId ?? entity.CardId)
+				.Where(cardId => !string.IsNullOrEmpty(cardId))
+				.OrderByDescending(cardId => Database.GetCardFromId(cardId!)?.Cost)
+				.Select(cardId => cardId!)
+				.ToList();
 
 		private static void AddKnownCardId(IHsGameState gameState, string cardId, int count = 1, DeckLocation location = DeckLocation.Unknown, string? copyOfCardId = null, EntityInfo? info = null)
 		{

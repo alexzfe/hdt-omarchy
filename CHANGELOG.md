@@ -1,3 +1,35 @@
+## Unreleased
+**Battlegrounds**:
+- Improve when the Max Gold counter appears.
+- Fixed UI bugs related to Minion Pinning.
+- Fixed the overlay not showing fully during a Timewarp tavern.
+
+## **Release v1.57.12 - 2026-09-17**
+**Hearthstone**:
+- Added deck highlight to Arrival of the Old Gods and Arrival of the Titans.
+- Added tracking for cost reductions from M.O.T.H.E.R.
+- Added related cards for Arfus.
+
+## **Release v1.57.11 - 2026-09-16**
+**Updated for Hearthstone 36.6.0**
+
+**Hearthstone**:
+- Fixed decks containing M.O.T.H.E.R. being considered Wild.
+
+**Battlegrounds**:
+- Fixed Beasts appearing twice in the list of banned tribes.
+- Fixed Aberrations appearing in the Minion browser between games.
+- Fixed Aureate Laureate showing a normal version in the minion browser.
+- Fixed a small remaining number of incorrect combat odds.
+
+## **Release v1.57.10 - 2026-09-14**
+**Battlegrounds**:
+- Fixed a number of incorrect combat odds.
+
+## **Release v1.57.8 - 2026-09-04**
+**Hearthstone**:
+- Fixed Slime'em's Ectoplasm related cards when multiple copies were played.
+
 ## **Release v1.57.7 - 2026-09-04**
 **Hearthstone**:
 - Added Paladin Imbue's Emerald Portal to The OutFinder.

@@ -6,6 +6,7 @@ using BobsBuddy.Enchantments;
 using BobsBuddy.Factory;
 using BobsBuddy.HeroPowers;
 using BobsBuddy.Minions.Beast;
+using BobsBuddy.Minions.Buddy;
 using BobsBuddy.Minions.Mech;
 using BobsBuddy.Minions.Pirate;
 using BobsBuddy.Minions.Undead;
@@ -56,6 +57,10 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 			minion.ScriptDataNum2 = entity.GetTag(GameTag.TAG_SCRIPT_DATA_NUM_2);
 			minion.ScriptDataNum3 = entity.GetTag(GameTag.TAG_SCRIPT_DATA_NUM_3);
 			minion.ScriptDataNum4 = entity.GetTag(GameTag.TAG_SCRIPT_DATA_NUM_4);
+
+			// Eclipsion Illidari: SCORE_VALUE_2 is the number of "Immune while Attacking" grants left this turn
+			if(minion is EclipsionIllidari illidari && entity.Tags.ContainsKey(GameTag.SCORE_VALUE_2))
+				illidari.ScoreValue2 = entity.GetTag(GameTag.SCORE_VALUE_2);
 
 			// LatestCard, not Card: MODULAR_ENTITY_PART tags hold the dbf id of what the entity
 			// currently is, which differs from Card for in-place transforms via CHANGE_ENTITY
@@ -154,6 +159,16 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 							// due to card effects like persist poet);
 							torethsBlessing.ScriptDataNum1 = entity.GetTag(GameTag.DIVINE_SHIELD);
 							minion.AttachEnchantment(torethsBlessing);
+						}
+						break;
+					case BoomingEnchantment.CardId:
+						var boomingModule = attachedEntities.FirstOrDefault(e => e.CardId == NonCollectible.Neutral.DrBoomsMonster_DrBoomsMonsterEnchantment);
+						var booming = sim.EnchantmentFactory.Create(BoomingEnchantment.CardId, minion.ControlledByPlayer);
+						if(boomingModule != null && booming != null)
+						{
+							booming.ScriptDataNum1 = boomingModule.GetTag(GameTag.TAG_SCRIPT_DATA_NUM_1);
+							booming.ScriptDataNum2 = boomingModule.GetTag(GameTag.TAG_SCRIPT_DATA_NUM_2);
+							minion.AttachEnchantment(booming);
 						}
 						break;
 					default:
@@ -362,6 +377,11 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 							if(defensiveSacrifice != null)
 								minion.AttachEnchantment(defensiveSacrifice);
 							break;
+						case Invulnerability.CardId:
+							var invulnerability = sim.EnchantmentFactory.Create(Invulnerability.CardId, minion.ControlledByPlayer);
+							if(invulnerability != null)
+								minion.AttachEnchantment(invulnerability);
+							break;
 					}
 				}
 			}
@@ -436,8 +456,16 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 			return aura > 0 ? aura * 3 : 0;
 		}
 
-		internal static bool WasHeroPowerActivated(Entity? heroPower)
-			=> heroPower != null && (heroPower.HasTag(GameTag.EXHAUSTED) || heroPower.HasTag(GameTag.BACON_HERO_POWER_ACTIVATED));
+		internal static bool WasHeroPowerActivated(Entity? heroPower, bool isDuos = false)
+		{
+			if(heroPower == null)
+				return false;
+			// In Duos, there is a repeat issue with "Embrace Your Rage" and BACON_HERO_POWER_ACTIVATED=1,
+			// but no trigger happens in combat; EXHAUSTED=0 is likely a more reliable signal.
+			if(isDuos && heroPower.CardId == NonCollectible.Neutral.EmbraceYourRageTavernBrawl)
+				return heroPower.HasTag(GameTag.EXHAUSTED);
+			return heroPower.HasTag(GameTag.EXHAUSTED) || heroPower.HasTag(GameTag.BACON_HERO_POWER_ACTIVATED);
+		}
 
 		internal static IOrderedEnumerable<Entity> GetOrderedMinions(IEnumerable<Entity> board)
 			=> board.Where(x => x.IsMinion).Select(x => x.Clone()).OrderBy(x => x.GetTag(GameTag.ZONE_POSITION));

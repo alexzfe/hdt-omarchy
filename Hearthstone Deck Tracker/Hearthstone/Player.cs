@@ -11,7 +11,6 @@ using Hearthstone_Deck_Tracker.Controls.Overlay.Constructed.Mulligan;
 using Hearthstone_Deck_Tracker.Hearthstone.CardExtraInfo;
 using Hearthstone_Deck_Tracker.Hearthstone.Entities;
 using Hearthstone_Deck_Tracker.Utility.Extensions;
-using NuGet;
 using static HearthDb.CardIds;
 
 #endregion
@@ -43,6 +42,10 @@ namespace Hearthstone_Deck_Tracker.Hearthstone
 		public int MaxHandSize { get; set; }
 		public int MaxGold { get; set; }
 		public int? CorpsesLeft { get; set; }
+
+		public bool ShouldShowMaxGold => _game.IsBattlegroundsMatch && MaxGold > InitialMaxGold
+			&& MaxGold > (_game.PlayerEntity?.GetTag(GameTag.RESOURCES) ?? 0);
+
 		public bool IsLocalPlayer { get; }
 		public int SpellsPlayedCount => SpellsPlayedCards.Count;
 		public List<Entity> SpellsPlayedCards { get; private set; } = new();
@@ -69,7 +72,6 @@ namespace Hearthstone_Deck_Tracker.Hearthstone
 		public int PogoHopperPlayedCount { get; private set; }
 		public Entity? LastDiedMinionCard => DeadMinionsCards.LastOrDefault();
 		public List<Entity> DeadMinionsCards { get; } = new();
-		public List<Entity> SlimedMinions { get; } = new();
 		public string? LastDrawnCardId { get; set; }
 		public int LibramReductionCount { get; private set; }
 		public HashSet<SpellSchool> PlayedSpellSchools { get; private set; } = new HashSet<SpellSchool>();
@@ -540,7 +542,6 @@ namespace Hearthstone_Deck_Tracker.Hearthstone
 			AbyssalCurseCount = 0;
 			PastHeroPowers.Clear();
 			DeadMinionsCards.Clear();
-			SlimedMinions.Clear();
 			IsPlayingWhizbang = false;
 			GodfreyCards.Clear();
 			BeatrixCardIds.Clear();

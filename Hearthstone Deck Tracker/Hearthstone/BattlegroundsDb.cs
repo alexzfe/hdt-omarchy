@@ -24,50 +24,109 @@ public class BattlegroundsDb
 
 	public HashSet<Race> Races { get; } = new();
 
-	public BattlegroundsDb()
+	public BattlegroundsDb() : this(Remote.BattlegroundsLiveMetaPeriod.Data)
 	{
-		Update(Remote.BattlegroundsTagOverrides.Data);
-		Remote.BattlegroundsTagOverrides.Loaded += d => Update(d);
+		Remote.BattlegroundsLiveMetaPeriod.Loaded += Update;
 		CardDefsManager.CardsChanged += () =>
 		{
-			Update(Remote.BattlegroundsTagOverrides.Data);
+			Update(Remote.BattlegroundsLiveMetaPeriod.Data);
 		};
 	}
 
-	private void Update(List<RemoteData.TagOverride>? tagOverrides)
+	internal BattlegroundsDb(RemoteData.MetaPeriod? metaPeriod)
 	{
-		var overrides = new Dictionary<int, Tuple<GameTag, int>>();
-		if (tagOverrides != null)
+		Update(metaPeriod);
+	}
+
+	private class TagLookup
+	{
+		private readonly Dictionary<(int DbfId, GameTag Tag), int> _overrides = new();
+
+		public TagLookup(List<RemoteData.TagOverride>? tagOverrides)
 		{
+			if(tagOverrides == null)
+				return;
 			foreach(var tagOverride in tagOverrides)
-				overrides[tagOverride.DbfId] = new Tuple<GameTag, int>(tagOverride.Tag, tagOverride.Value);
+				_overrides[(tagOverride.DbfId, tagOverride.Tag)] = tagOverride.Value;
 		}
 
-		int GetTag(HearthDb.Card card, GameTag tag)
+		public int GetTag(HearthDb.Card card, GameTag tag)
+			=> _overrides.TryGetValue((card.DbfId, tag), out var value) ? value : card.Entity.GetTag(tag);
+
+		public Race GetRace(HearthDb.Card card) => (Race)GetTag(card, GameTag.CARDRACE);
+
+		// HearthDb resolves the secondary race from a per-race marker tag being present at all, so an
+		// override can only remove one by setting that tag to 0
+		public Race GetSecondaryRace(HearthDb.Card card)
 		{
-			if(overrides.TryGetValue(card.DbfId, out var tagOverride) && tagOverride.Item1 == tag) return tagOverride.Item2;
-			return card.Entity.GetTag(tag);
+			var race = GetRace(card);
+			foreach(var tag in card.Entity.Tags)
+			{
+				if(!RaceUtils.TagRaceMap.TryGetValue(tag.EnumId, out var secondaryRace) || secondaryRace == race)
+					continue;
+				if(_overrides.TryGetValue((card.DbfId, (GameTag)tag.EnumId), out var value) && value == 0)
+					continue;
+				return secondaryRace;
+			}
+			return Race.INVALID;
 		}
+	}
+
+	private IEnumerable<Race> GetRaces(HearthDb.Card card, TagLookup tags)
+	{
+		var race = tags.GetRace(card);
+		if(race == Race.INVALID)
+		{
+			var racesInText = Races
+				.Where(x => x != Race.ALL && x != Race.INVALID)
+				.Where(x => card.GetLocText(Locale.enUS)?.Contains(HearthDbConverter.RaceConverter(x)) ?? false)
+				.ToList();
+			if(racesInText.Count == 1)
+			{
+				yield return racesInText.Single();
+				yield break;
+			}
+		}
+		yield return race;
+		var secondaryRace = tags.GetSecondaryRace(card);
+		if(secondaryRace != Race.INVALID)
+			yield return secondaryRace;
+	}
+
+	internal void Update(RemoteData.MetaPeriod? metaPeriod)
+	{
+		var tags = new TagLookup(metaPeriod?.TagOverrides);
 
 		var baconCards = Cards.All.Values
 			.Where(x =>
-				GetTag(x, GameTag.TECH_LEVEL) > 0
+				tags.GetTag(x, GameTag.TECH_LEVEL) > 0
 				// explicitly check for == 1, as Rot Hide Gnoll has 2 but is not in the pool
-				&& GetTag(x, GameTag.IS_BACON_POOL_MINION) == 1
+				&& tags.GetTag(x, GameTag.IS_BACON_POOL_MINION) == 1
 			)
 			.ToList();
 
+		// the card data can carry minions of a tribe that is not in rotation (yet), so the meta period
+		// decides which tribes exist and the card scan is only the fallback until it has loaded
 		Races.Clear();
-		foreach(var race in baconCards.Select(x => x.Race))
-			Races.Add(race);
+		if(metaPeriod?.MinionTypes is { } minionTypes)
+		{
+			Races.UnionWith(minionTypes);
+			Races.Add(Race.INVALID);
+			Races.Add(Race.ALL);
+		}
+		else
+		{
+			foreach(var race in baconCards.Select(tags.GetRace))
+				Races.Add(race);
+		}
 
 		_cardsByTier.Clear();
 		_solosExclusiveCardsByTier.Clear();
 		_duosExclusiveCardsByTier.Clear();
 		foreach(var card in baconCards)
 		{
-			var tier = GetTag(card, GameTag.TECH_LEVEL);
-			var duosExclusive = GetTag(card, GameTag.IS_BACON_DUOS_EXCLUSIVE);
+			var tier = tags.GetTag(card, GameTag.TECH_LEVEL);
+			var duosExclusive = tags.GetTag(card, GameTag.IS_BACON_DUOS_EXCLUSIVE);
 			// the game doesn't actually set this ever to a negative value, but we use that as a sentinel
 			// value to hide Solos-exclusive cards in Duos
 			var targetDict = (
@@ -77,7 +136,7 @@ public class BattlegroundsDb
 			);
 			if(!targetDict.ContainsKey(tier))
 				targetDict[tier] = new Dictionary<Race, List<Card>>();
-			foreach(var race in new HashSet<Race>(GetRaces(card)))
+			foreach(var race in new HashSet<Race>(GetRaces(card, tags)))
 			{
 				if(!targetDict[tier].ContainsKey(race))
 					targetDict[tier][race] = new List<Card>();
@@ -91,14 +150,14 @@ public class BattlegroundsDb
 		_duosExclusiveSpellsByTier.Clear();
 		_spells.AddRange(Cards.All.Values
 			.Where(x => (
-				GetTag(x, GameTag.TECH_LEVEL) > 0
+				tags.GetTag(x, GameTag.TECH_LEVEL) > 0
 				&& x.Type == CardType.BATTLEGROUND_SPELL
-				&& GetTag(x, GameTag.IS_BACON_POOL_SPELL) == 1
+				&& tags.GetTag(x, GameTag.IS_BACON_POOL_SPELL) == 1
 			)));
 		foreach(var card in _spells)
 		{
-			var tier = GetTag(card, GameTag.TECH_LEVEL);
-			var duosExclusive = GetTag(card, GameTag.IS_BACON_DUOS_EXCLUSIVE);
+			var tier = tags.GetTag(card, GameTag.TECH_LEVEL);
+			var duosExclusive = tags.GetTag(card, GameTag.IS_BACON_DUOS_EXCLUSIVE);
 			var targetDict = (
 				duosExclusive > 0 ? _duosExclusiveSpellsByTier :
 				duosExclusive < 0 ? _solosExclusiveSpellsByTier :
@@ -113,11 +172,11 @@ public class BattlegroundsDb
 		_buddiesByTier.Clear();
 		_solosExclusiveBuddiesByTier.Clear();
 		_duosExclusiveBuddiesByTier.Clear();
-		_buddies.AddRange(Cards.All.Values.Where(x => GetTag(x, GameTag.BACON_BUDDY) == 1 && GetTag(x, GameTag.BACON_TRIPLED_BASE_MINION_ID) == 0));
+		_buddies.AddRange(Cards.All.Values.Where(x => tags.GetTag(x, GameTag.BACON_BUDDY) == 1 && tags.GetTag(x, GameTag.BACON_TRIPLED_BASE_MINION_ID) == 0));
 		foreach(var card in _buddies)
 		{
-			var tier = GetTag(card, GameTag.TECH_LEVEL);
-			var duosExclusive = GetTag(card, GameTag.IS_BACON_DUOS_EXCLUSIVE);
+			var tier = tags.GetTag(card, GameTag.TECH_LEVEL);
+			var duosExclusive = tags.GetTag(card, GameTag.IS_BACON_DUOS_EXCLUSIVE);
 			var targetDict = (
 				duosExclusive > 0 ? _duosExclusiveBuddiesByTier :
 				duosExclusive < 0 ? _solosExclusiveBuddiesByTier :
@@ -127,25 +186,6 @@ public class BattlegroundsDb
 				targetDict[tier] = new List<Card>();
 			targetDict[tier].Add(new Card(card, true));
 		}
-	}
-
-	private IEnumerable<Race> GetRaces(HearthDb.Card card)
-	{
-		if(card.Race == Race.INVALID)
-		{
-			var racesInText = Races
-				.Where(x => x != Race.ALL && x != Race.INVALID)
-				.Where(x => card.GetLocText(Locale.enUS)?.Contains(HearthDbConverter.RaceConverter(x)) ?? false)
-				.ToList();
-			if(racesInText.Count == 1)
-			{
-				yield return racesInText.Single();
-				yield break;
-			}
-		}
-		yield return card.Race;
-		if(card.SecondaryRace != Race.INVALID)
-			yield return card.SecondaryRace;
 	}
 
 	public List<Card> GetCards(int tier, Race race, bool isDuos)

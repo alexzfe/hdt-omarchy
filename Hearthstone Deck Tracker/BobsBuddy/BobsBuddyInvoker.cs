@@ -19,6 +19,7 @@ using BobsBuddy.Enchantments;
 using BobsBuddy.Minions.Duos;
 using BobsBuddy.Minions.Buddy;
 using BobsBuddy.Minions.Mech;
+using BobsBuddy.Minions.Neutral;
 using BobsBuddy.Trinkets;
 using BobsBuddy.Utils;
 using BobsBuddyPlayer = BobsBuddy.Simulation.Player;
@@ -596,7 +597,7 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 						}
 					}
 				}
-				inputPlayer.AddHeroPower(heroPower?.CardId ?? "", friendly, WasHeroPowerActivated(heroPower), pHpData, pHpData2, pHpData3, pHpAttachedMinion, heroPower?.Id ?? 0);
+				inputPlayer.AddHeroPower(heroPower?.CardId ?? "", friendly, WasHeroPowerActivated(heroPower, _game.IsBattlegroundsDuosMatch), pHpData, pHpData2, pHpData3, pHpAttachedMinion, heroPower?.Id ?? 0);
 			}
 
 			foreach(var quest in gamePlayer.Quests)
@@ -703,9 +704,19 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 				? GetAttachedEntities(playerEntity.Id).Where(x => x.IsInPlay).ToList()
 				: GetAttachedEntities(playerEntity.Id).ToList();
 
-			// captured inputPlayer values below are marked as either 'attached' or 'direct'
-			// attached: obtained from GetAttachedEntities (required to read correct player/teammate in duos games)
-			// direct: comes directly from the playerEntity using GetTag (no special handling needed for duos)
+			// captured inputPlayer values below are marked as: 'attached', 'direct' or 'transfer'
+			// - attached: obtained from GetAttachedEntities (required to read correct player/teammate in duos games)
+			// - direct: comes directly from the playerEntity using GetTag (no special handling needed for duos)
+			// - transfer: from the opponent's TagTransferPlayerEnchant when one is attached, otherwise direct
+
+			// Each combat the game attaches a TagTransferPlayerEnchant to the OPPONENT player entity, carrying the
+			// opponent's per-game counters under the same tag ids as the player entity.
+			// This matter when opponent is ghost, since the killed opponent entity's own copies of those tags can
+			// still hold the previous combat's values at the snapshot.
+			var pTagTransfer = friendly ? null : playerAttached.FirstOrDefault(x => x.CardId == NonCollectible.Neutral.TagtransferplayerenchantDnt && x.IsInPlay);   // attached
+			int ReadPlayerCounter(GameTag tag) => !_game.IsBattlegroundsDuosMatch && pTagTransfer != null
+				? pTagTransfer.GetTag(tag)  // pTagTransfer when opponent (transfer)
+				: playerEntity.GetTag(tag);  // playerEntity otherwise (direct)
 
 			var pEternalLegion = playerAttached.FirstOrDefault(x => x.CardId == NonCollectible.Neutral.EternalKnight_EternalKnightPlayerEnchantDnt);
 			if(pEternalLegion != null)
@@ -777,17 +788,6 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 				Log.Info($"pGoldrinnBeastAttack={goldrinnAttackBonus}, pGoldrinnBeastHealth={goldrinnHealthBonus}, friendly={friendly}");
 			}
 
-			// Fang Anklet: a ghost board appears to accumulate the Fangs Out enchantment from the prior player.
-			if(!friendly && inputPlayer.HeroIsKelThuzad)
-			{
-				var pFangAnklet = playerAttached.FirstOrDefault(x => x.CardId == NonCollectible.Neutral.FangAnklet_FangAnkletPlayerEnchantDnt);
-				if(pFangAnklet != null)
-				{
-					inputPlayer.BeastAttackBonus += pFangAnklet.GetTag(GameTag.TAG_SCRIPT_DATA_NUM_1);   // attached
-					inputPlayer.BeastHealthBonus += pFangAnklet.GetTag(GameTag.TAG_SCRIPT_DATA_NUM_2);   // attached
-				}
-			}
-
 			var pAncestralAutomaton = playerAttached.FirstOrDefault(x => x.CardId == NonCollectible.Neutral.AncestralAutomaton_AncestralAutomatonPlayerEnchantDnt);
 			if(pAncestralAutomaton != null)
 				inputPlayer.AncestralAutomatonCounter = pAncestralAutomaton.GetTag(GameTag.TAG_SCRIPT_DATA_NUM_1);   // attached
@@ -807,14 +807,17 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 				Log.Info($"pWhelpAttack={inputPlayer.WhelpAttackBonus}, pWhelpHealth={inputPlayer.WhelpHealthBonus}, friendly={friendly}");
 			}
 
-			inputPlayer.ElementalPlayCounter = playerEntity.GetTag((GameTag)2878);   // direct
+			inputPlayer.ElementalPlayCounter = ReadPlayerCounter((GameTag)2878);   // direct or transfer
 
-			inputPlayer.ElementalsGiveExtraAttack = playerEntity.GetTag(GameTag.BACON_ELEMENTAL_BUFFATKVALUE);   // direct
-			inputPlayer.ElementalsGiveExtraHealth = playerEntity.GetTag(GameTag.BACON_ELEMENTAL_BUFFHEALTHVALUE);   // direct
+			inputPlayer.ElementalsGiveExtraAttack = ReadPlayerCounter(GameTag.BACON_ELEMENTAL_BUFFATKVALUE);   // direct or transfer
+			inputPlayer.ElementalsGiveExtraHealth = ReadPlayerCounter(GameTag.BACON_ELEMENTAL_BUFFHEALTHVALUE);   // direct or transfer
 
 			Log.Info($"pEternal={inputPlayer.EternalKnightCounter}, pEternalLegion={inputPlayer.EternalLegionCounter}, pUndead={inputPlayer.UndeadAttackBonus}, pElemental={inputPlayer.ElementalPlayCounter}, pElementalExtraAtk={inputPlayer.ElementalsGiveExtraAttack}, pElementalExtraHealth={inputPlayer.ElementalsGiveExtraHealth}, friendly={friendly}");
 
-			inputPlayer.PiratesSummonCounter = playerEntity.GetTag((GameTag)2358);   // direct
+			inputPlayer.PiratesSummonCounter = ReadPlayerCounter((GameTag)2358);   // direct or transfer
+
+			// Number of times this player has Magnetized this game.
+			inputPlayer.MagnetizeCounter = ReadPlayerCounter((GameTag)3670);   // direct or transfer
 
 			inputPlayer.ResourcesSpentThisGame = playerEntity.GetTag(GameTag.NUM_RESOURCES_SPENT_THIS_GAME);   // direct
 
@@ -827,13 +830,15 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 					inputPlayer.ResourcesSpentThisGame = GetResourcesSpentThisGameFromMalorne(malorne, GetAttachedEntities(malorne.Id));   // derived
 			}
 
-			inputPlayer.BeastsSummonCounter = playerEntity.GetTag((GameTag)3962);   // direct
+			inputPlayer.BeastsSummonCounter = ReadPlayerCounter((GameTag)3962);   // direct or transfer
 
-			inputPlayer.TastyLobsterCounter = playerEntity.GetTag((GameTag)4803);   // direct
+			inputPlayer.TastyLobsterCounter = ReadPlayerCounter((GameTag)4803);   // direct or transfer
 
-			inputPlayer.FriendlyMinionsDeadLastCombatCounter = playerEntity.GetTag((GameTag)2717);   // direct
+			inputPlayer.GoldenMinionsPlayedCounter = ReadPlayerCounter((GameTag)4799);   // direct or transfer
 
-			inputPlayer.BattlecryCounter = playerEntity.GetTag((GameTag)3236);   // direct
+			inputPlayer.FriendlyMinionsDeadLastCombatCounter = ReadPlayerCounter((GameTag)2717);   // direct or transfer
+
+			inputPlayer.BattlecryCounter = ReadPlayerCounter((GameTag)3236);   // direct or transfer
 
 			Log.Info($"pPirates={inputPlayer.PiratesSummonCounter}, pBeasts={inputPlayer.BeastsSummonCounter}, pDeadLastCombat={inputPlayer.FriendlyMinionsDeadLastCombatCounter}, pBattlecry={inputPlayer.BattlecryCounter}, friendly={friendly}");
 
@@ -849,7 +854,7 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 
 			Log.Info($"pBloodGem=+{inputPlayer.BloodGemAtkBuff}/+{inputPlayer.BloodGemHealthBuff}, friendly={friendly}");
 
-			var pTagTransfer = friendly ? null : playerAttached.FirstOrDefault(x => x.CardId == NonCollectible.Neutral.TagtransferplayerenchantDnt && x.IsInPlay);   // attached (opponent-only transfer enchant)
+			// Direct first: the game writes these two on the player entity again after the transfer.
 			inputPlayer.TavernSpellAtkBuff = playerEntity.HasTag(GameTag.TAVERN_SPELL_ATTACK_INCREASE)
 				? playerEntity.GetTag(GameTag.TAVERN_SPELL_ATTACK_INCREASE)   // direct
 				: pTagTransfer?.GetTag(GameTag.TAVERN_SPELL_ATTACK_INCREASE) ?? 0;   // attached (fallback)
@@ -858,9 +863,9 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 				: pTagTransfer?.GetTag(GameTag.TAVERN_SPELL_HEALTH_INCREASE) ?? 0;   // attached (fallback)
 			Log.Info($"pTavernSpell=+{inputPlayer.TavernSpellAtkBuff}/+{inputPlayer.TavernSpellHealthBuff} (opponentTransferEnchant={pTagTransfer != null}), friendly={friendly}");
 
-			inputPlayer.TavernSpellCounter = playerEntity.GetTag((GameTag)3088);   // direct
+			inputPlayer.TavernSpellCounter = ReadPlayerCounter((GameTag)3088);   // direct or transfer
 
-			inputPlayer.DeathrattleCounter = playerEntity.GetTag((GameTag)4639);   // direct
+			inputPlayer.DeathrattleCounter = ReadPlayerCounter((GameTag)4639);   // direct or transfer
 
 			var pHaunted = playerAttached.FirstOrDefault(x => x.CardId == NonCollectible.Neutral.HauntedCarapace_HauntedCarapacePlayerEnchantDnt);
 			if(pHaunted != null)
@@ -1021,8 +1026,7 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 			if(entities.Count(x => x is MinionCardEntity) <= handOwner.Hand.Count(x => x is MinionCardEntity))
 				return;
 
-			handOwner.Hand.Clear();
-			handOwner.Hand.AddRange(entities);
+			handOwner.Hand = entities;
 
 			await TryRerun();
 		}
@@ -1579,17 +1583,30 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 			if(minion is ICopiesDeathrattles)
 				return false;
 
-			// Sneed's New Shredder's innate Deathrattle summons a copy of a hand minion; when that hand
-			// minion is an Ancestral Automaton the observation is indistinguishable from a hidden
-			// magnetized Auto Assembler — do not attribute its summons to a module.
-			if(minion is SneedsNewShredder)
+			if(minion is SneedsNewShredder or KangorsApprentice)
 				return false;
+
+			// Deathly Phylactery transiently adds +1 to EXTRA_DEATHRATTLES_ADDITIONAL and then removes it;
+			// Read the tag now, when the phylactery's +1 has been subtracted (titus values do not reduce)
+			var multiplierNow = 1;
+			if(_game.Entities.TryGetValue(sourceEntityId, out var source))
+			{
+				var controller = source.GetTag(GameTag.CONTROLLER);
+				var controllerEntity = _game.Entities.Values.FirstOrDefault(e => e.HasTag(GameTag.PLAYER_ID) && e.GetTag(GameTag.PLAYER_ID) == controller);
+				multiplierNow += controllerEntity?.GetTag(GameTag.EXTRA_DEATHRATTLES_ADDITIONAL) ?? 0;
+			}
+
+			// The stored multiplier was read at the first trigger; if it was higher than now, attribute it to Deathly Phylactery
+			var phylacteryExtra = triggerMultiplier > multiplierNow ? 1 : 0;
+
+			// Use the current value for the divisions below
+			triggerMultiplier = multiplierNow;
 
 			// Extra deathrattles (e.g., Titus Rivendare) resolve as full repeats of the whole deathrattle list —
 			// so the first (observed / triggerMultiplier) are the distinct deathrattles in their real order.
 			_observedAutoAssemblerFirings.TryGetValue(sourceEntityId, out var observedFirings);
-			var firedDeathrattles = observedFirings / triggerMultiplier;
-			var summonedDeathrattles = summonedByIsPremium.Count / triggerMultiplier;
+			var firedDeathrattles = (observedFirings - phylacteryExtra) / triggerMultiplier;
+			var summonedDeathrattles = (summonedByIsPremium.Count - phylacteryExtra) / triggerMultiplier;
 			var automatons = summonedByIsPremium.Take(Math.Max(summonedDeathrattles, firedDeathrattles)).ToList();
 
 			// A firing the board had no space for leaves no summon to read the premium flag from; repeat the last
