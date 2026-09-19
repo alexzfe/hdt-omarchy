@@ -23,6 +23,8 @@ the `windows-build` CI job builds and tests on Windows to keep it that way.
   builds with the .NET SDK on Linux.
 - **Install & run** — `linux/install.sh`, `linux/launch-hdt.in`, `linux/hearthstone-deck-tracker.desktop.in`,
   the app icon, and `linux/hdt-xerror-shim.c` (keeps Proton's Wine alive across an XInput error, see below).
+- **Wineserver outside the sandbox** — `linux/hdt-wineserver` and `linux/launch-battlenet.in`, so HDT keeps
+  reading the game after Battle.net restarts (see [One wineserver outside the sandbox](#one-wineserver-outside-the-sandbox)).
 
 ## Requirements
 
@@ -48,6 +50,8 @@ linux/install.sh
 |---|---|
 | Binary | `~/.local/share/hearthstone-deck-tracker/app/` (override with `HDT_INSTALL_DIR`) |
 | Launcher | `~/.local/bin/launch-hdt` |
+| Battle.net launcher | `~/.local/bin/hdt-launch-battlenet`; Omarchy's Battle.net menu entry is pointed at it (see [One wineserver outside the sandbox](#one-wineserver-outside-the-sandbox)) |
+| Wineserver helper | `~/.local/bin/hdt-wineserver` (used by both launchers) |
 | Menu entry | `~/.local/share/applications/hearthstone-deck-tracker.desktop` |
 | Icon | `~/.local/share/icons/hicolor/256x256/apps/hearthstone-deck-tracker.png` |
 | X error shim | `~/.local/share/hearthstone-deck-tracker/lib/<arch>/libhdt-xerror-shim.so` (see below) |
@@ -68,6 +72,7 @@ installed, including the Hyprland require line, and leaves the Wine prefix alone
 | `HDT_SKIP_BUILD=1` | install the existing build output instead of building (`HDT_BUILD_OUTPUT` selects it) |
 | `HDT_SKIP_SHIM=1` | do not build/install the X error shim |
 | `HDT_NO_HYPR_RELOAD=1` | do not run `hyprctl reload` after installing the Hyprland rules |
+| `HDT_NO_BNET_ENTRY=1` | leave the Battle.net menu entry alone |
 | `OMARCHY_PATH` | Omarchy installation to take the Lua module loader from (default `~/.local/share/omarchy`, then `/usr/share/omarchy`) |
 
 To just build without installing: `linux/build.sh [Debug|Release]`. Output lands in
@@ -78,6 +83,37 @@ The launcher assumes the prefix at `~/Games/battlenet` and the `GE-Proton` umu r
 names this app (Proton turns it into the X11 window class `steam_app_hdt`, which the menu entry's
 `StartupWMClass` and any compositor rules match on). The prefix is selected by `WINEPREFIX`, so HDT
 still shares the game's Wine session.
+
+## One wineserver outside the sandbox
+
+HDT reads Hearthstone's memory (HearthMirror) for the Battlegrounds overlay, hovers, popups, mulligan
+and deck detection. Under Wine that read is done by the prefix's **wineserver**. Every `umu-run`
+starts its own pressure-vessel (bubblewrap) sandbox with its own Linux user namespace, and the
+wineserver lives in the sandbox of whichever program started it. The kernel refuses it access to the
+memory of processes in a *sibling* sandbox.
+
+So with the plain launchers, HDT loses the game as soon as Battle.net is quit and started again while
+HDT stays open: the new Battle.net and its Hearthstone run in a new sandbox. HDT's log then fills with
+`HearthMirror RPC [client]: Error while invoking ...: ScryInitializationException`, "Start
+Hearthstone" from HDT logs `Access denied` on `Process.get_MainModule()`, and the overlay shows a stale
+or wrong module whose hovers and popups do nothing. Restarting only the game from the same Battle.net
+is fine. Reproduced with two tiny test programs: a process from a second `umu-run` gets
+`ReadProcessMemory` error 5 while one from the server's own `umu-run` reads fine.
+
+`hdt-wineserver` fixes it by starting the prefix's wineserver on the host, outside every sandbox,
+before `umu-run` (with the same esync/fsync/ntsync settings Proton uses). A server in the parent user
+namespace may read every sandbox's processes, so HDT keeps working across Battle.net and game
+restarts in any start order. Both `launch-hdt` and `hdt-launch-battlenet` call it and run Proton pinned
+to the server's version (the newest installed `GE-Proton*`, or whatever already serves the prefix) so
+client and server protocol versions always match. The server exits 30 s after the last Wine process
+(`HDT_WINESERVER_LINGER`).
+
+If Battle.net was started some other way before HDT (for example `omarchy-launch-battlenet` from a
+terminal), the server is already sandboxed; `launch-hdt` then sends a desktop notification. Game
+restarts still work; after quitting Battle.net, quit HDT too and start both again from the menu.
+`omarchy-install-gaming-battlenet` rewrites the Battle.net menu entry; re-run `install.sh` afterwards.
+Because the launchers pin the installed Proton, GE-Proton updates arrive only when something else runs
+umu with the bare `GE-Proton` name (Omarchy's own launcher does).
 
 ## Running on Hyprland / Omarchy
 

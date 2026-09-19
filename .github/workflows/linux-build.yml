@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: shellcheck
-        run: shellcheck -S warning linux/*.sh linux/launch-hdt.in linux/tests/*.sh
+        run: shellcheck -S warning linux/*.sh linux/launch-hdt.in linux/launch-battlenet.in linux/hdt-wineserver linux/tests/*.sh
 
       - name: Install smoke test
         run: linux/tests/install-smoke.sh

@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Make sure the Battle.net prefix is served by a wineserver running OUTSIDE umu's sandbox, then
+# print the Proton directory that clients must use (so their protocol version matches the server).
+#
+# Why: every umu-run starts its own pressure-vessel (bubblewrap) container with its own user
+# namespace, and the prefix's wineserver lives in whichever container started it. The kernel does
+# not let that wineserver read the memory of processes in a sibling container, so ReadProcessMemory
+# from HDT (HearthMirror) fails with "Access denied" for a Hearthstone started from a Battle.net
+# that was launched after the server. Symptom: after quitting and relaunching Battle.net/Hearthstone
+# with HDT still open, HDT's log fills with ScryInitializationException and the overlay (Battlegrounds
+# tabs, hovers, popups) stops working. A wineserver started here, in the host user namespace, may
+# read every container's processes, so the order in which HDT and Battle.net start stops mattering.
+#
+# Usage: hdt-wineserver            prints the Proton directory on stdout, notes on stderr; exit 0
+#                                  unless no usable Proton is found (then prints nothing, exit 1).
+# Environment: HDT_WINEPREFIX (default ~/Games/battlenet), HDT_PROTONPATH (a GE-Proton directory, or
+#              a name such as GE-Proton / GE-Proton11-7; default GE-Proton = newest installed),
+#              HDT_WINESERVER_LINGER (seconds the server stays up after its last client, default 30).
+set -uo pipefail
+
+PREFIX="${HDT_WINEPREFIX:-$HOME/Games/battlenet}"
+WANT="${HDT_PROTONPATH:-GE-Proton}"
+LINGER="${HDT_WINESERVER_LINGER:-30}"
+COMPAT_DIRS=("$HOME/.local/share/Steam/compatibilitytools.d" "$HOME/.steam/root/compatibilitytools.d")
+
+note() { echo "hdt-wineserver: $*" >&2; }
+
+# Newest installed Proton matching $WANT. umu itself may download a newer GE-Proton when given the
+# bare name; we deliberately pin to what is installed so the server and every client agree.
+resolve_proton() {
+  if [[ $WANT == /* ]]; then
+    [[ -x $WANT/files/bin/wineserver ]] && echo "$WANT"
+    return
+  fi
+  local d found=()
+  for d in "${COMPAT_DIRS[@]}"; do
+    [[ -d $d ]] || continue
+    for p in "$d/$WANT"*/; do
+      [[ -x ${p}files/bin/wineserver ]] && found+=("$(realpath "$p")")
+    done
+  done
+  ((${#found[@]})) || return
+  for d in "${found[@]}"; do printf '%s\t%s\n' "${d##*/}" "$d"; done | sort -u | sort -V | tail -n 1 | cut -f2
+}
+
+# The wineserver serving $PREFIX, if any: Wine names the server directory after the prefix's device
+# and inode, and the server chdirs into it.
+server_dir() {
+  printf '/tmp/.wine-%s/server-%s-%x' "$(id -u)" "$(stat -L -c %D "$PREFIX")" "$(stat -L -c %i "$PREFIX")"
+}
+running_server() {
+  local dir pid
+  dir="$(server_dir)"
+  for pid in $(pgrep -x wineserver); do
+    [[ $(readlink "/proc/$pid/cwd" 2>/dev/null) == "$dir" ]] && { echo "$pid"; return; }
+  done
+}
+proton_of_pid() { local exe; exe="$(readlink "/proc/$1/exe" 2>/dev/null)" && echo "${exe%/files/bin/wineserver}"; }
+sandboxed() { [[ $(readlink "/proc/$1/ns/user" 2>/dev/null) != "$(readlink /proc/self/ns/user)" ]]; }
+
+warn_sandboxed() {
+  local msg="Battle.net or HDT was started without the hdt-omarchy launchers. Game restarts work while this Battle.net stays open. If you quit Battle.net, quit the tracker too, then start them again from the menu."
+  note "the wineserver for $PREFIX (pid $1) runs inside a umu sandbox. $msg"
+  command -v notify-send >/dev/null 2>&1 && notify-send -a "Hearthstone Deck Tracker" "Tracker may lose the game after a Battle.net restart" "$msg" 2>/dev/null
+  return 0
+}
+
+[[ -d $PREFIX ]] || { note "prefix not found: $PREFIX"; exit 1; }
+
+pid="$(running_server)"
+if [[ -n $pid ]]; then
+  sandboxed "$pid" && warn_sandboxed "$pid"
+  proton_of_pid "$pid"
+  exit 0
+fi
+
+proton="$(resolve_proton)"
+if [[ -z $proton ]]; then
+  note "no installed Proton matches '$WANT'; leaving the wineserver to umu"
+  exit 1
+fi
+
+# Same synchronisation settings Proton gives its own server (clients must agree with the server).
+env WINEPREFIX="$PREFIX" WINEESYNC=1 WINEFSYNC=1 WINENTSYNC=1 WINEDEBUG=-all \
+  "$proton/files/bin/wineserver" -p"$LINGER" >/dev/null 2>&1
+rc=$?
+# rc 2 = another server won the race (e.g. Battle.net starting at the same moment): use that one.
+# The command returns before the backgrounded server has moved into its directory, so poll briefly.
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  pid="$(running_server)"
+  [[ -n $pid ]] && break
+  sleep 0.2
+done
+if [[ -z $pid ]]; then
+  note "could not start $proton/files/bin/wineserver (exit $rc); leaving it to umu"
+  echo "$proton"
+  exit 0
+fi
+sandboxed "$pid" && warn_sandboxed "$pid"
+proton_of_pid "$pid"

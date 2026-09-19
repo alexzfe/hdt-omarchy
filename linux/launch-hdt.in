@@ -4,7 +4,8 @@
 #
 # Installed by linux/install.sh. @HDT_INSTALL_DIR@ is filled in at install time.
 #
-# Environment: HDT_WINEPREFIX (default ~/Games/battlenet), HDT_PROTONPATH (GE-Proton),
+# Environment: HDT_WINEPREFIX (default ~/Games/battlenet), HDT_PROTONPATH (GE-Proton; the newest
+#              installed one is used, or whichever version already serves the prefix),
 #              HDT_GAMEID (umu-hdt), HDT_NO_XERROR_SHIM=1 to run without the X error shim.
 set -e
 
@@ -29,6 +30,11 @@ if [[ ! -d $WINEPREFIX_DIR ]]; then
   exit 1
 fi
 
+# Run the prefix's wineserver outside umu's sandbox, so it can read the memory of a Hearthstone
+# started from any Battle.net launch (see hdt-wineserver), and pin Proton to that server's version.
+PROTON_DIR="$(HDT_WINEPREFIX="$WINEPREFIX_DIR" "@HDT_WINESERVER@")" || PROTON_DIR=""
+PROTON_DIR="${PROTON_DIR:-${HDT_PROTONPATH:-GE-Proton}}"
+
 # Proton's Wine exits on an XInput error when XWayland disables a pointer device mid-session
 # (see linux/hdt-xerror-shim.c). Preload the shim so those errors are logged instead of fatal.
 # Note: LD_PRELOAD reaches every process umu starts, Hearthstone included when HDT launches it.
@@ -40,7 +46,7 @@ fi
 # the desktop entry and any compositor rules match on. The prefix is chosen by WINEPREFIX.
 exec env \
   WINEPREFIX="$WINEPREFIX_DIR" \
-  PROTONPATH="${HDT_PROTONPATH:-GE-Proton}" \
+  PROTONPATH="$PROTON_DIR" \
   GAMEID="${HDT_GAMEID:-umu-hdt}" \
   PROTON_VERB=run \
   umu-run "$HDT" "$@"

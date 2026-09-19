@@ -17,7 +17,9 @@ o.window({ class = "^steam_app_hdt$", title = "^Hearthstone Deck Tracker$" }, { 
 -- fullscreen/maximize requests are ignored; set Hearthstone to windowed mode (Options > Graphics).
 -- Super+F still fullscreens it. Super+O (Omarchy's pop toggle) tiles an already floating window on the
 -- first press and pops it out (float + pin, 1300x900) on the second.
-o.window({ class = "^steam_app_(hdt|battlenet)$", title = "^Hearthstone$" }, { float = true, suppress_event = "fullscreen maximize" })
+-- render_unfocused keeps the game receiving frames while its workspace is hidden, so Unity keeps
+-- ticking combat/animations instead of blocking on present (see misc.render_unfocused_fps).
+o.window({ class = "^steam_app_(hdt|battlenet)$", title = "^Hearthstone$" }, { float = true, suppress_event = "fullscreen maximize", render_unfocused = true })
 
 -- Battle.net launcher and its login window.
 o.window({ class = "^steam_app_(hdt|battlenet)$", title = "^Battle\\.net" }, { float = true, center = true })

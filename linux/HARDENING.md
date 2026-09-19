@@ -103,6 +103,13 @@ kept for the record.
 - [ ] **Game restart while HDT keeps running.** Close or kill Hearthstone, launch it again from
       Battle.net without restarting HDT. Expect a second `Game window set as the overlay owner` line
       in `hdt_log.txt`, the game back at the tile geometry, and the overlay visible over it.
+      Also quit **Battle.net** and start it again from the menu (now `hdt-launch-battlenet`): there
+      must be no `ScryInitializationException` flood after the new game's `Hidden -> Visible` line and
+      Battlegrounds hovers/tabs must work. Before `hdt-wineserver` this failed every time (logs of
+      2026-09-17 and 2026-09-19: tens of thousands of Scry errors after a Battle.net relaunch; the
+      Battle.net-kept-open restarts of 2026-09-12 worked). Cause and fix: `linux/README.md`,
+      "One wineserver outside the sandbox". Verified with test programs in the real prefix, not yet
+      with the game.
 - [ ] **HDT restart while the game keeps running.** Quit HDT (or kill it), start it again with the game
       open. Expect `Overlay Hidden -> Visible`, the owner line, the overlay pinned and visible.
 - [ ] **Super+F with the pinned overlay.** With the game focused press Super+F, play a few seconds,

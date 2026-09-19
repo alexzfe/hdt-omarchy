@@ -3,7 +3,9 @@
 # icon, X error shim and (on Omarchy) the Hyprland window rules.
 #
 #   Binary:   $HDT_INSTALL_DIR         (default ~/.local/share/hearthstone-deck-tracker/app)
-#   Launcher: ~/.local/bin/launch-hdt
+#   Launcher: ~/.local/bin/launch-hdt, ~/.local/bin/hdt-launch-battlenet, ~/.local/bin/hdt-wineserver
+#   Battle.net menu entry (~/.local/share/applications/battlenet.desktop, Omarchy's): Exec switched
+#             from omarchy-launch-battlenet to hdt-launch-battlenet (see linux/hdt-wineserver for why)
 #   Menu:     ~/.local/share/applications/hearthstone-deck-tracker.desktop
 #   Icon:     ~/.local/share/icons/hicolor/256x256/apps/hearthstone-deck-tracker.png
 #   Shim:     $HDT_INSTALL_DIR/../lib/<arch>/libhdt-xerror-shim.so  (see linux/hdt-xerror-shim.c)
@@ -17,6 +19,7 @@
 #   HDT_BUILD_OUTPUT     build output directory (default "Hearthstone Deck Tracker/bin/x64/Release")
 #   HDT_SKIP_SHIM=1      do not build/install the X error shim
 #   HDT_NO_HYPR_RELOAD=1 do not run "hyprctl reload" after installing the Hyprland rules
+#   HDT_NO_BNET_ENTRY=1  leave the Battle.net menu entry alone
 #   OMARCHY_PATH         Omarchy installation (default: ~/.local/share/omarchy or /usr/share/omarchy)
 #
 # The launcher runs HDT inside the Battle.net Wine prefix so it shares a Wine session with the game.
@@ -29,6 +32,9 @@ BIN_DIR="$HOME/.local/bin"
 APP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 LAUNCHER="$BIN_DIR/launch-hdt"
+BNET_LAUNCHER="$BIN_DIR/hdt-launch-battlenet"
+WINESERVER_HELPER="$BIN_DIR/hdt-wineserver"
+BNET_DESKTOP="$APP_DIR/battlenet.desktop"
 DESKTOP="$APP_DIR/hearthstone-deck-tracker.desktop"
 ICON="$ICON_DIR/hearthstone-deck-tracker.png"
 MARKER=".hdt-omarchy-install"   # written into $DEST; install.sh only ever deletes directories carrying it
@@ -89,7 +95,11 @@ uninstall() {
       echo "warning: $DEST has no $MARKER file, not touching it" >&2
     fi
   fi
-  rm -f "$LAUNCHER" "$DESKTOP" "$ICON"
+  rm -f "$LAUNCHER" "$DESKTOP" "$ICON" "$BNET_LAUNCHER" "$WINESERVER_HELPER"
+  if [ -f "$BNET_DESKTOP" ] && grep -qxF "Exec=$BNET_LAUNCHER" "$BNET_DESKTOP"; then
+    sed -i "s|^Exec=$BNET_LAUNCHER\$|Exec=omarchy-launch-battlenet|" "$BNET_DESKTOP"
+    note "  restored Exec=omarchy-launch-battlenet in $BNET_DESKTOP"
+  fi
   rm -rf "${SHIM_ROOT:?}/lib" "${SHIM_ROOT:?}/lib32" "${SHIM_ROOT:?}/lib64"
   rmdir "$SHIM_ROOT" 2>/dev/null || true
   rm -f "$HYPR_RULES"
@@ -105,7 +115,7 @@ uninstall() {
 
 case "${1:-}" in
   --uninstall) uninstall; exit 0 ;;
-  -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   "") ;;
   *) die "unknown argument: $1 (try --help)" ;;
 esac
@@ -170,8 +180,11 @@ else
 fi
 
 # --- launcher and menu entry ----------------------------------------------------------------------
-sed "s|@HDT_INSTALL_DIR@|$DEST|g" "$REPO_ROOT/linux/launch-hdt.in" > "$LAUNCHER"
-chmod +x "$LAUNCHER"
+install -m 755 "$REPO_ROOT/linux/hdt-wineserver" "$WINESERVER_HELPER"
+sed -e "s|@HDT_INSTALL_DIR@|$DEST|g" -e "s|@HDT_WINESERVER@|$WINESERVER_HELPER|g" \
+  "$REPO_ROOT/linux/launch-hdt.in" > "$LAUNCHER"
+sed "s|@HDT_WINESERVER@|$WINESERVER_HELPER|g" "$REPO_ROOT/linux/launch-battlenet.in" > "$BNET_LAUNCHER"
+chmod +x "$LAUNCHER" "$BNET_LAUNCHER"
 sed "s|@LAUNCHER@|$LAUNCHER|g" "$REPO_ROOT/linux/hearthstone-deck-tracker.desktop.in" > "$DESKTOP"
 
 note "Installed $VERSION"
@@ -179,6 +192,26 @@ note "  binary:   $DEST"
 note "  launcher: $LAUNCHER   (ensure $BIN_DIR is on PATH)"
 note "  menu:     $DESKTOP"
 [ -n "$SHIM" ] && note "  shim:     $SHIM"
+
+# --- Battle.net menu entry ------------------------------------------------------------------------
+# HDT reads Hearthstone's memory through the prefix's wineserver, which can only read processes in
+# its own umu sandbox unless it runs outside all of them. Launching Battle.net through
+# hdt-launch-battlenet guarantees that no matter whether Battle.net or HDT starts first.
+# Only Omarchy's unmodified entry is touched; "omarchy-install-gaming-battlenet" rewrites it, so
+# re-run this script afterwards.
+if [ -z "${HDT_NO_BNET_ENTRY:-}" ] && [ -f "$BNET_DESKTOP" ]; then
+  if grep -qxF 'Exec=omarchy-launch-battlenet' "$BNET_DESKTOP"; then
+    sed -i "s|^Exec=omarchy-launch-battlenet\$|Exec=$BNET_LAUNCHER|" "$BNET_DESKTOP"
+    note "  battle.net: $BNET_DESKTOP now runs $BNET_LAUNCHER"
+  elif grep -qxF "Exec=$BNET_LAUNCHER" "$BNET_DESKTOP"; then
+    note "  battle.net: $BNET_DESKTOP already runs $BNET_LAUNCHER"
+  else
+    note "  battle.net: $BNET_DESKTOP has a custom Exec line; left alone. Start Battle.net with"
+    note "              $BNET_LAUNCHER so HDT keeps reading the game after Battle.net restarts."
+  fi
+elif [ -z "${HDT_NO_BNET_ENTRY:-}" ]; then
+  note "  battle.net: no $BNET_DESKTOP; start Battle.net with $BNET_LAUNCHER"
+fi
 
 # --- Hyprland window rules (Omarchy) -------------------------------------------------------------
 # The rules file is copied next to the user's config and loaded from hyprland.lua through Omarchy's
