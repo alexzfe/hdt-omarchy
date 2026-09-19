@@ -14,8 +14,12 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${1:-Release}"
 HDT_DIR="$REPO_ROOT/Hearthstone Deck Tracker"
 
-if ! command -v dotnet >/dev/null 2>&1; then
-  echo "error: the .NET SDK ('dotnet') is not on PATH." >&2
+# A distribution "dotnet" may be a runtime without an SDK; fall back to a user-local SDK in ~/.dotnet.
+if [ -z "$(dotnet --list-sdks 2>/dev/null)" ] && [ -x "$HOME/.dotnet/dotnet" ]; then
+  export PATH="$HOME/.dotnet:$PATH"
+fi
+if [ -z "$(dotnet --list-sdks 2>/dev/null)" ]; then
+  echo "error: no .NET SDK found ('dotnet --list-sdks' is empty or dotnet is not on PATH)." >&2
   echo "Install it (e.g. https://dot.net) and re-run. A user-local SDK in ~/.dotnet works;" >&2
   echo "add it with: export PATH=\"\$HOME/.dotnet:\$PATH\"" >&2
   exit 1

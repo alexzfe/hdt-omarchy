@@ -182,7 +182,7 @@ fi
 # --- launcher and menu entry ----------------------------------------------------------------------
 install -m 755 "$REPO_ROOT/linux/hdt-wineserver" "$WINESERVER_HELPER"
 sed -e "s|@HDT_INSTALL_DIR@|$DEST|g" -e "s|@HDT_WINESERVER@|$WINESERVER_HELPER|g" \
-  "$REPO_ROOT/linux/launch-hdt.in" > "$LAUNCHER"
+  -e "s|@HDT_REPO@|$REPO_ROOT|g" "$REPO_ROOT/linux/launch-hdt.in" > "$LAUNCHER"
 sed "s|@HDT_WINESERVER@|$WINESERVER_HELPER|g" "$REPO_ROOT/linux/launch-battlenet.in" > "$BNET_LAUNCHER"
 chmod +x "$LAUNCHER" "$BNET_LAUNCHER"
 sed "s|@LAUNCHER@|$LAUNCHER|g" "$REPO_ROOT/linux/hearthstone-deck-tracker.desktop.in" > "$DESKTOP"

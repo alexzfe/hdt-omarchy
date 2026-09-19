@@ -176,6 +176,7 @@ HDT-Localization/
 Resources/Generated/
 Resources/Tiles/
 /lib/HSReplay.dll
+/lib/.hearthsim-etags*
 /lib/HearthMirror.exe
 /lib/HearthMirror.dll
 /lib/HearthMirror.zip

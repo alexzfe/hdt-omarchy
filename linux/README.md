@@ -25,6 +25,7 @@ the `windows-build` CI job builds and tests on Windows to keep it that way.
   the app icon, and `linux/hdt-xerror-shim.c` (keeps Proton's Wine alive across an XInput error, see below).
 - **Wineserver outside the sandbox** — `linux/hdt-wineserver` and `linux/launch-battlenet.in`, so HDT keeps
   reading the game after Battle.net restarts (see [One wineserver outside the sandbox](#one-wineserver-outside-the-sandbox)).
+- **Updating** — `linux/update.sh`, run automatically by `launch-hdt` before the tracker starts (see [Updating](#updating)).
 
 ## Requirements
 
@@ -83,6 +84,47 @@ The launcher assumes the prefix at `~/Games/battlenet` and the `GE-Proton` umu r
 names this app (Proton turns it into the X11 window class `steam_app_hdt`, which the menu entry's
 `StartupWMClass` and any compositor rules match on). The prefix is selected by `WINEPREFIX`, so HDT
 still shares the game's Wine session.
+
+## Updating
+
+The fork does not update itself: upstream HDT's Squirrel updater is only compiled into the `Squirrel`
+configuration, and it would replace the fork with HearthSim's Windows release anyway. What does update
+on its own is the card data: HDT downloads the latest card definitions from HearthstoneJSON at every
+start, so stat and text changes appear without a rebuild. Everything else changes only with a rebuild:
+HDT's code (new cards, mechanics, expansions) and the HearthSim libraries it is built against —
+**BobsBuddy** (the Battlegrounds combat simulator, whose minion effects are compiled in),
+**HearthMirror** (reads the game's memory; client patches can break old builds) and **HearthDb**.
+
+**This happens automatically.** `launch-hdt` runs `update.sh --auto` *before* it starts the tracker —
+the one moment the files are free, since a running HDT cannot be replaced under Wine. At most every
+12 hours, and it only rebuilds when something actually moved: the fork, HearthSim's master, or the
+libraries. A full rebuild and install takes about 20 seconds, with a desktop notification while it
+runs and another when it finishes. `HDT_NO_AUTO_UPDATE=1` skips it; the log is
+`~/.cache/hdt-omarchy/update.log`.
+
+Nothing about `--auto` can cost you a working tracker or uncommitted work:
+
+- the build runs first and is installed only if it succeeded, so a bad upstream merge just wastes 20 seconds;
+- a conflicting merge is aborted, and a merge that builds badly stays in the checkout, uninstalled, for you to look at;
+- an unreachable network, or any other failure, is reported and the launch continues with the installed build;
+- it is bounded by a 15-minute timeout, so a launch can never hang on it.
+
+By hand:
+
+```bash
+linux/update.sh            # pull the fork, fetch the latest HearthSim libraries, rebuild + install if anything changed
+linux/update.sh --check    # report only (exit 10 when an update is available)
+linux/update.sh --upstream # also merge HearthSim's master (a conflicting merge is aborted)
+linux/update.sh --auto     # what launch-hdt runs: --upstream, unattended, notifies, never blocks
+```
+
+Close HDT first; `update.sh` refuses to replace a running install. `fetch-deps.sh` records each library's
+ETag in `lib/.hearthsim-etags`, which is how `--check` sees a new BobsBuddy before anything is rebuilt.
+`HDT_AUTO_NO_UPSTREAM=1` keeps `--auto` to the fork and the libraries, leaving HearthSim merges to you.
+
+After a HearthSim release, BobsBuddy can refuse to simulate ("update required") until the fork's HDT
+version catches up: HearthSim's remote config sets a minimum *HDT* version, so a new BobsBuddy alone
+does not satisfy it. Merge upstream (`--upstream`) to get past it.
 
 ## One wineserver outside the sandbox
 

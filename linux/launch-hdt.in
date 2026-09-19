@@ -2,11 +2,12 @@
 # Launch Hearthstone Deck Tracker inside the Battle.net Wine prefix via umu-launcher + GE-Proton,
 # so it shares a Wine session with Battle.net and Hearthstone (required for HDT to see the game).
 #
-# Installed by linux/install.sh. @HDT_INSTALL_DIR@ is filled in at install time.
+# Installed by linux/install.sh. @HDT_INSTALL_DIR@ and @HDT_REPO@ are filled in at install time.
 #
 # Environment: HDT_WINEPREFIX (default ~/Games/battlenet), HDT_PROTONPATH (GE-Proton; the newest
 #              installed one is used, or whichever version already serves the prefix),
-#              HDT_GAMEID (umu-hdt), HDT_NO_XERROR_SHIM=1 to run without the X error shim.
+#              HDT_GAMEID (umu-hdt), HDT_NO_XERROR_SHIM=1 to run without the X error shim,
+#              HDT_NO_AUTO_UPDATE=1 to skip the update run before launch.
 set -e
 
 WINEPREFIX_DIR="${HDT_WINEPREFIX:-$HOME/Games/battlenet}"
@@ -28,6 +29,26 @@ fi
 if [[ ! -d $WINEPREFIX_DIR ]]; then
   echo "Wine prefix not found: $WINEPREFIX_DIR (set HDT_WINEPREFIX to the Battle.net prefix)." >&2
   exit 1
+fi
+
+# Keep the tracker up to date before starting it: its files can only be replaced while it is closed,
+# so this is the one safe moment. At most every 12 hours, and only actually rebuilds when the fork,
+# HearthSim's master or the libraries moved (see linux/update.sh --auto, which notifies as it goes).
+# Any failure, including no network, leaves the installed build in place and the launch continues.
+UPDATE_SCRIPT="@HDT_REPO@/linux/update.sh"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/hdt-omarchy"
+UPDATE_STAMP="$CACHE_DIR/update-check"
+UPDATE_LOG="$CACHE_DIR/update.log"
+if [[ -x $UPDATE_SCRIPT && -z ${HDT_NO_AUTO_UPDATE:-} ]] &&
+   [[ ! -f $UPDATE_STAMP || -n $(find "$UPDATE_STAMP" -mmin +720 2>/dev/null) ]]; then
+  mkdir -p "$CACHE_DIR" && touch "$UPDATE_STAMP"
+  # Keep the last ~2000 lines of the log, so it cannot grow without bound.
+  if [[ -f $UPDATE_LOG ]] && (( $(wc -l < "$UPDATE_LOG") > 4000 )); then
+    tail -n 2000 "$UPDATE_LOG" > "$UPDATE_LOG.tmp" && mv "$UPDATE_LOG.tmp" "$UPDATE_LOG"
+  fi
+  echo "=== $(date -Is) launch-hdt auto-update ===" >> "$UPDATE_LOG"
+  HDT_INSTALL_DIR="@HDT_INSTALL_DIR@" timeout 900 "$UPDATE_SCRIPT" --auto >> "$UPDATE_LOG" 2>&1 ||
+    echo "auto-update exited $? (see $UPDATE_LOG); starting the installed build" >> "$UPDATE_LOG"
 fi
 
 # Run the prefix's wineserver outside umu's sandbox, so it can read the memory of a Hearthstone
