@@ -1,7 +1,6 @@
 ﻿using System.Windows.Input;
 using Hearthstone_Deck_Tracker.Commands;
 using Hearthstone_Deck_Tracker.Utility;
-using Hearthstone_Deck_Tracker.Utility.Logging;
 using Hearthstone_Deck_Tracker.Utility.MVVM;
 
 namespace Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides;
@@ -32,8 +31,6 @@ public class BattlegroundsGuidesTabsViewModel : ViewModel
 		AnimateMetaSnapshot = !isClosing;
 		ActiveViewModel = isClosing ? null : viewModel;
 		AnimateMetaSnapshot = true;
-		if(Wine.IsWine)
-			Log.Debug($"Battlegrounds guides tab {viewModel.GetType().Name} {(isClosing ? "closed" : "opened")}, overlay {Core.Overlay.ActualWidth:0}x{Core.Overlay.ActualHeight:0}, content max height {Core.Overlay.GuidesTabs.TabsContent.MaxHeight:0}");
 	}
 
 	public bool AnimateMetaSnapshot
