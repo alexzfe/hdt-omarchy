@@ -224,8 +224,12 @@ namespace Hearthstone_Deck_Tracker.Utility
 			return false;
 		}
 
-		/// <summary>True when running under Wine and <paramref name="hwnd"/> is the calling thread's active window.</summary>
-		public static bool IsActiveWindow(IntPtr hwnd) => IsWine && hwnd != IntPtr.Zero && GetActiveWindow() == hwnd;
+		/// <summary>
+		/// True when running under Wine and <paramref name="hwnd"/> is the foreground window.
+		/// Deliberately not GetActiveWindow, which is per-thread and stays set on our own windows
+		/// while the whole application is in the background.
+		/// </summary>
+		public static bool IsActiveWindow(IntPtr hwnd) => IsWine && hwnd != IntPtr.Zero && GetForegroundWindow() == hwnd;
 
 		/// <summary>
 		/// Answers WM_MOUSEACTIVATE with MA_NOACTIVATE so clicks on the window do not activate it.
@@ -329,9 +333,6 @@ namespace Hearthstone_Deck_Tracker.Utility
 
 		[DllImport("user32.dll")]
 		private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-		[DllImport("user32.dll")]
-		private static extern IntPtr GetActiveWindow();
 
 		[DllImport("user32.dll")]
 		private static extern IntPtr GetForegroundWindow();
