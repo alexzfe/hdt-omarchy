@@ -619,7 +619,11 @@ namespace Hearthstone_Deck_Tracker.Windows
 
 			// Without the hook the overlay would never follow the game window again. This happens under
 			// Wine, whose server refuses an out-of-context hook on another process's thread when no module
-			// handle is given. Fall back to watching the window rectangle.
+			// handle is given. Fall back to watching the window rectangle. On Windows the hook can fail
+			// for reasons the polling would not fix (an elevated game, UIPI), so keep upstream's
+			// behaviour there rather than running a timer that may Hide()/Show() the window.
+			if(!Wine.IsWine)
+				return;
 			Log.Warn("Could not hook the Hearthstone window, polling its position instead");
 			StartGameRectPolling();
 		}
@@ -633,7 +637,10 @@ namespace Hearthstone_Deck_Tracker.Windows
 				var gameWindow = User32.GetHearthstoneWindow();
 				if(gameWindow == IntPtr.Zero)
 					return;
-				if(gameWindow != _ownedGameWindow)
+				// Only when we already own a window: _ownedGameWindow is set in HookGameWindow, and
+				// only under the X11 driver, where owning the game window is what SetOwner does.
+				// Without this the first tick would always look like a game restart.
+				if(_ownedGameWindow != IntPtr.Zero && gameWindow != _ownedGameWindow)
 				{
 					// A new game window (quick restart): re-own and remap so Wine refreshes the
 					// WM_TRANSIENT_FOR hint, which it only writes when the window is mapped.
@@ -682,6 +689,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 		{
 			Wine.SetOwner(this, IntPtr.Zero);
 			_ownedGameWindow = IntPtr.Zero;
+			_foregroundHandBackAttempts = 0;
 			if(_gameRectPoller != null)
 			{
 				_gameRectPoller.Stop();
