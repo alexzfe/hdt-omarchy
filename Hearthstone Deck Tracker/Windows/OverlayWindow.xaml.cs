@@ -227,15 +227,7 @@ namespace Hearthstone_Deck_Tracker.Windows
 
 			InitializeComponent();
 
-			if(Wine.IsWine)
-			{
-				// See Utility/Wine.cs. An alpha of 1/255 keeps every pixel inside Wine's layered
-				// window shape (alpha 0 would render as opaque black under XWayland), and never
-				// activating on Show() lets Wine keep this window override-redirect, so the
-				// compositor stacks it above the game without tiling or focusing it.
-				Wine.ApplyTransparencyWorkaround(this);
-				ShowActivated = false;
-			}
+			InitializeWineOverlay(); // no-op off Wine, see OverlayWindow.Wine.cs
 
 			_mulliganNotificationBehavior = new OverlayElementBehavior(MulliganNotificationPanel)
 			{
@@ -589,112 +581,25 @@ namespace Hearthstone_Deck_Tracker.Windows
 		}
 
 		private IntPtr _windowHook = IntPtr.Zero;
-		private DispatcherTimer? _gameRectPoller;
-		private System.Drawing.Rectangle _lastPolledGameRect;
-		private int _foregroundHandBackAttempts;
-		private const int MaxForegroundHandBackAttempts = 8; // 2 s at the 250 ms poll interval
-		private IntPtr _ownedGameWindow;
-
 		internal void HookGameWindow()
 		{
-			if(_windowHook != IntPtr.Zero || _gameRectPoller != null)
+			if(_windowHook != IntPtr.Zero || IsPollingGameRect)
 				return;
 			var thread = User32.GetHearthstoneWindowThread();
 			if(thread.ProcId == 0)
 				return;
-			// Under Wine's X11 driver the game window becomes the overlay's owner so the compositor
-			// stacks the overlay with the game (see Wine.SetOwner). Cleared again in UnhookGameWindow.
-			if(Wine.UsesX11Driver)
-			{
-				_ownedGameWindow = User32.GetHearthstoneWindow();
-				Wine.SetOwner(this, _ownedGameWindow);
-				Log.Info("Game window set as the overlay owner");
-			}
+			OnGameWindowHooking();
 			const uint dwFlagsOutOfContextIgnoreSelf = 0x0000 | 0x001 | 0x002;
 			const uint eventObjectLocationchange = 0x800B;
 			_windowHook = User32.SetWinEventHook(eventObjectLocationchange, eventObjectLocationchange, IntPtr.Zero,
 				_winEventCallback, thread.ProcId, thread.ThreadId, dwFlagsOutOfContextIgnoreSelf);
-			if(_windowHook != IntPtr.Zero)
-				return;
-
-			// Without the hook the overlay would never follow the game window again. This happens under
-			// Wine, whose server refuses an out-of-context hook on another process's thread when no module
-			// handle is given. Fall back to watching the window rectangle. On Windows the hook can fail
-			// for reasons the polling would not fix (an elevated game, UIPI), so keep upstream's
-			// behaviour there rather than running a timer that may Hide()/Show() the window.
-			if(!Wine.IsWine)
-				return;
-			Log.Warn("Could not hook the Hearthstone window, polling its position instead");
-			StartGameRectPolling();
-		}
-
-		private void StartGameRectPolling()
-		{
-			_lastPolledGameRect = User32.GetHearthstoneRect(true);
-			_gameRectPoller = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
-			_gameRectPoller.Tick += (_, _) =>
-			{
-				var gameWindow = User32.GetHearthstoneWindow();
-				if(gameWindow == IntPtr.Zero)
-					return;
-				// Only when we already own a window: _ownedGameWindow is set in HookGameWindow, and
-				// only under the X11 driver, where owning the game window is what SetOwner does.
-				// Without this the first tick would always look like a game restart.
-				if(_ownedGameWindow != IntPtr.Zero && gameWindow != _ownedGameWindow)
-				{
-					// A new game window (quick restart): re-own and remap so Wine refreshes the
-					// WM_TRANSIENT_FOR hint, which it only writes when the window is mapped.
-					Wine.SetOwner(this, gameWindow);
-					_ownedGameWindow = gameWindow;
-					if(IsVisible)
-					{
-						Log.Info("Game window changed, remapping the overlay under the new owner");
-						Hide();
-						Show();
-					}
-				}
-				var rect = User32.GetHearthstoneRect(true);
-				if(rect == _lastPolledGameRect)
-					return;
-				// Wine turns a popup that is moved while it is the active window into a managed
-				// window. Hand activation back to the game first and retry on the next tick, a bounded
-				// number of times so this can never turn into a focus-stealing loop.
-				if(Wine.IsActiveWindow(new WindowInteropHelper(this).Handle))
-				{
-					if(_foregroundHandBackAttempts < MaxForegroundHandBackAttempts)
-					{
-						if(_foregroundHandBackAttempts == 0)
-							Log.Info("Overlay is the active window, giving the game the foreground before moving");
-						_foregroundHandBackAttempts++;
-						User32.BringHsToForeground();
-					}
-					else if(_foregroundHandBackAttempts == MaxForegroundHandBackAttempts)
-					{
-						_foregroundHandBackAttempts++;
-						Log.Warn($"Overlay is still the active window after {MaxForegroundHandBackAttempts} attempts to give the game the foreground; waiting");
-					}
-					return;
-				}
-				_foregroundHandBackAttempts = 0;
-				Log.Debug($"Game window moved to {rect}, updating overlay position");
-				_lastPolledGameRect = rect;
-				UpdatePosition();
-				// moving or resizing the game restacks it above the overlay in X, see Wine.RaiseWithoutActivating
-				Wine.RaiseWithoutActivating(this);
-			};
-			_gameRectPoller.Start();
+			if(_windowHook == IntPtr.Zero)
+				OnGameWindowHookFailed();
 		}
 
 		internal void UnhookGameWindow()
 		{
-			Wine.SetOwner(this, IntPtr.Zero);
-			_ownedGameWindow = IntPtr.Zero;
-			_foregroundHandBackAttempts = 0;
-			if(_gameRectPoller != null)
-			{
-				_gameRectPoller.Stop();
-				_gameRectPoller = null;
-			}
+			OnGameWindowUnhooked();
 			if(_windowHook == IntPtr.Zero)
 				return;
 			User32.UnhookWinEvent(_windowHook);
@@ -744,11 +649,8 @@ namespace Hearthstone_Deck_Tracker.Windows
 			Top = top;
 			Left = left;
 			Width = width;
-			// Under Wine's X11 driver a popup covering the whole monitor is handed to the window
-			// manager; staying a pixel short keeps it override-redirect. The canvas keeps the full size.
-			Height = Wine.AvoidFullScreenHeight(top, left, width, height);
-			if(Wine.IsWine)
-				Log.Debug($"Overlay rect set to {left},{top} {width}x{Height} (game {width}x{height}, opacity {Opacity:0.##}, mapped {IsVisible})");
+			Height = WineAdjustedHeight(top, left, width, height);
+			LogOverlayRect(top, left, width, height);
 			CanvasInfo.Width = width;
 			CanvasInfo.Height = height;
 		}
