@@ -1,8 +1,23 @@
-## Unreleased
+## **Release v1.5810 - 2026-09-22**
+**Updated for Hearthstone 36.6.1**
+
 **Battlegrounds**:
-- Improve when the Max Gold counter appears.
-- Fixed UI bugs related to Minion Pinning.
+- Changed Aberrations in the available minion types to use the match deity.
+- Improved when the deity counter appears.
+
+## **Release v1.58.0 - 2026-09-22**
+**Hearthstone**:
+- Added a setting to choose which cards can appear in the opponent's Related Cards panel.
+
+**Battlegrounds**:
+- Added a last known deity size when hovering another player.
+- Added a counter for your own deity size\
+  *You can configure this as usual from Settings (Advanced) > Overlay > Counters.*
+- Added a setting to configure whether the Meta Snapshot button is shown.
+- Improved when the Max Gold counter is visible.
+- Fixed the hero guide tab not showing on small screens.
 - Fixed the overlay not showing fully during a Timewarp tavern.
+- Fixed UI bugs related to Minion Pinning.
 
 ## **Release v1.57.12 - 2026-09-17**
 **Hearthstone**:

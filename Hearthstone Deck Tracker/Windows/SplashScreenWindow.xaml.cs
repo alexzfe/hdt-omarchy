@@ -1,4 +1,6 @@
+using System;
 using System.ComponentModel;
+using System.Windows.Interop;
 using Hearthstone_Deck_Tracker.Utility;
 using Hearthstone_Deck_Tracker.Utility.Extensions;
 using Hearthstone_Deck_Tracker.Utility.Logging;
@@ -13,6 +15,12 @@ namespace Hearthstone_Deck_Tracker.Windows
 		{
 			InitializeComponent();
 			Wine.ApplyTransparencyWorkaround(this);
+		}
+
+		private void Window_SourceInitialized(object sender, EventArgs e)
+		{
+			var hwnd = new WindowInteropHelper(this).Handle;
+			User32.SetWindowExStyle(hwnd, User32.WsExToolWindow);
 		}
 
 		public void ShowConditional()
