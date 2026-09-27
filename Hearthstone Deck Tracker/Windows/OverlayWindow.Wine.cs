@@ -109,12 +109,12 @@ namespace Hearthstone_Deck_Tracker.Windows
 					Show();
 				}
 			}
-			var rect = User32.GetHearthstoneRect(true);
-			if(rect == _lastPolledGameRect)
-				return;
-			// Wine turns a popup that is moved while it is the active window into a managed window. Hand
-			// activation back to the game first and retry on the next tick, a bounded number of times so
-			// this can never turn into a focus-stealing loop.
+			// Wine turns a popup that is moved while it is the active window into a managed window, and
+			// Wine.RaiseWithoutActivating has to skip an active window for the same reason, which leaves
+			// the overlay wherever the compositor last put it in the X stack (dead buttons). Hand
+			// activation back to the game and retry on the next tick, a bounded number of times so this
+			// can never turn into a focus-stealing loop. Checked before the rectangle, so an overlay that
+			// is stuck active recovers even while the game window never moves.
 			if(Wine.IsActiveWindow(new WindowInteropHelper(this).Handle))
 			{
 				if(_foregroundHandBackAttempts < MaxForegroundHandBackAttempts)
@@ -132,11 +132,23 @@ namespace Hearthstone_Deck_Tracker.Windows
 				return;
 			}
 			_foregroundHandBackAttempts = 0;
-			Log.Debug($"Game window moved to {rect}, updating overlay position");
-			_lastPolledGameRect = rect;
-			UpdatePosition();
-			// moving or resizing the game restacks it above the overlay in X, see Wine.RaiseWithoutActivating
-			Wine.RaiseWithoutActivating(this);
+			var rect = User32.GetHearthstoneRect(true);
+			if(rect != _lastPolledGameRect)
+			{
+				Log.Debug($"Game window moved to {rect}, updating overlay position");
+				_lastPolledGameRect = rect;
+				UpdatePosition();
+			}
+			// The compositor restacks the game above the overlay in X every time it activates it, and it
+			// does that without anything changing on the Win32 side that HDT could react to: the game
+			// keeps the foreground when the pointer comes back to it, and the hover path only raises on
+			// the transition into a clickable element, so a pointer already resting on a button never
+			// gets a second raise. Re-raise from here, the one place that keeps running while the game is
+			// up. This costs the game's own clicks nothing: which window a click goes to is decided by the
+			// input shape (WS_EX_TRANSPARENT, see SetClickthrough), not by the X order, and the compositor
+			// draws the overlay on top either way.
+			if(IsContentVisible && !_hiddenBehindGame)
+				Wine.RaiseWithoutActivating(this);
 		}
 
 		/// <summary>

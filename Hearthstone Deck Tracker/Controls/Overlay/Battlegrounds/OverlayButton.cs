@@ -2,6 +2,8 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using Hearthstone_Deck_Tracker.Utility;
+using Hearthstone_Deck_Tracker.Utility.Logging;
 
 namespace Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds;
 
@@ -80,6 +82,8 @@ public class OverlayButton : Border
 	{
 		base.OnMouseDown(e);
 
+		LogWineClick("press", e);
+
 		if(!IsEnabled)
 			return;
 
@@ -91,6 +95,8 @@ public class OverlayButton : Border
 	protected override void OnMouseUp(MouseButtonEventArgs e)
 	{
 		base.OnMouseUp(e);
+
+		LogWineClick("release", e);
 
 		if(!IsEnabled)
 			return;
@@ -105,5 +111,21 @@ public class OverlayButton : Border
 		// unconditionally consume the click even with no handler attached -
 		// prevents the raw mouse event from passing through the overlay to the game.
 		e.Handled = true;
+	}
+
+	/// <summary>
+	/// Under Wine the X server, not WPF, decides which window a click on the overlay reaches, and the
+	/// answer changes with the stacking order the compositor last set (see Wine.RaiseWithoutActivating).
+	/// These two lines are what tells a dead overlay button apart afterwards: no line at all means the
+	/// click went to the game, a press without a release means it was lost mid-click, and both lines
+	/// with nothing happening means the button ran and the panel behind it is at fault. Clicks are
+	/// user-paced, so this stays quiet enough for the default log level.
+	/// </summary>
+	private void LogWineClick(string phase, MouseButtonEventArgs e)
+	{
+		if(!Wine.IsWine)
+			return;
+		var name = string.IsNullOrEmpty(Name) ? Command?.GetType().Name ?? "unnamed" : Name;
+		Log.Info($"OverlayButton {phase}: {name} ({e.ChangedButton}, enabled {IsEnabled})");
 	}
 }

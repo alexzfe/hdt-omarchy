@@ -291,12 +291,31 @@ namespace Hearthstone_Deck_Tracker.Utility
 			if(!UsesX11Driver)
 				return;
 			var hwnd = new WindowInteropHelper(window).Handle;
-			if(hwnd == IntPtr.Zero || IsActiveWindow(hwnd))
+			if(hwnd == IntPtr.Zero)
 				return;
+			if(IsActiveWindow(hwnd))
+			{
+				// While this lasts every raise is skipped, so the window keeps whatever place in the X
+				// stack the compositor last gave it and clicks on its controls go to the game. Logged
+				// once per stretch: the callers run on a timer and on every hover.
+				if(!_raiseSkippedWhileActive)
+				{
+					_raiseSkippedWhileActive = true;
+					Log.Warn($"X raise skipped, the overlay is the active window (foreground: {DescribeForeground()})");
+				}
+				return;
+			}
 			const uint flags = SwpNoSize | SwpNoMove | SwpNoActivate | SwpNoOwnerZOrder;
 			User32.SetWindowPos(hwnd, HwndNoTopmost, 0, 0, 0, 0, flags);
 			User32.SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, flags);
+			if(_raiseSkippedWhileActive)
+			{
+				_raiseSkippedWhileActive = false;
+				Log.Info("X raise resumed, the overlay is no longer the active window");
+			}
 		}
+
+		private static bool _raiseSkippedWhileActive;
 
 		private static readonly IntPtr HwndTopmost = new(-1);
 		private static readonly IntPtr HwndNoTopmost = new(-2);

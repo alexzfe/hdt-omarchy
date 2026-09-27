@@ -313,8 +313,20 @@ Under Wine's X11 driver HDT raises the overlay again without activating it
 (`Wine.RaiseWithoutActivating`): `SetWindowPos` to `HWND_NOTOPMOST`, then back to `HWND_TOPMOST`, with
 `SWP_NOACTIVATE`. A single `HWND_TOPMOST` does nothing because Wine sees the overlay as already on top of
 the Win32 z-order and never restacks the X window. It runs when the pointer enters an overlay button,
-after the game window moves or resizes, and when the game regains focus. It is skipped while the
-overlay is Wine's active window, the condition that would make Wine hand it to the window manager.
+when the game regains focus, and on every 250 ms position poll while the overlay content is visible.
+The poll is what catches the compositor restacking the game with nothing changing on the Win32 side
+(the game keeping the foreground, or the pointer already resting on a button); the X order does not
+decide the game's own clicks, the overlay's input shape does, so the repeated raise costs the game nothing.
+
+The raise is skipped while the overlay is Wine's active window, the condition that would make Wine hand
+it to the window manager. The position poll hands activation back to the game in that case (a bounded
+number of times), even when the game window never moves. The log shows `X raise skipped, the overlay is
+the active window` once when this starts and `X raise resumed` when it ends.
+
+To tell a dead button apart in `hdt_log.txt`, overlay buttons log `OverlayButton press: <name>` and
+`OverlayButton release: <name>` under Wine. No line means the click went to the game; a press without a
+release means it was lost mid-click; both lines with nothing happening means the button ran and the
+panel behind it is at fault.
 
 ## Arena pick overlay froze under Wine
 
