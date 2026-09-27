@@ -1,4 +1,19 @@
-## **Release v1.5810 - 2026-09-22**
+## **Release v1.58.3 - 2026-09-24**
+**Battlegrounds**:
+- Added an orange dot to the minion browser indicating which Dark Paradox is in the current match.
+- Reworked the minion browser to be driven off the game's library.
+- Fixed a number of incorrect combat odds.
+
+## **Release v1.58.2 - 2026-09-23**
+**Battlegrounds**:
+- Added an "All" type filter to the minion browser filters.
+- Fixed the minion browser sometimes showing minion types twice.
+- Fixed a number of incorrect combat odds.
+
+**General**:
+- Fixed a rare bug that could cause the overlay to remain invisible after tabbing out.
+
+## **Release v1.58.1 - 2026-09-22**
 **Updated for Hearthstone 36.6.1**
 
 **Battlegrounds**:

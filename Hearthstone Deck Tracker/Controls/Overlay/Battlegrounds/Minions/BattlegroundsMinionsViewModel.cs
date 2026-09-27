@@ -7,6 +7,7 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using Hearthstone_Deck_Tracker.Commands;
+using Hearthstone_Deck_Tracker.Controls.Tooltips;
 using Hearthstone_Deck_Tracker.Utility.Assets;
 using Hearthstone_Deck_Tracker.Utility.Battlegrounds;
 using Hearthstone_Deck_Tracker.Utility.Extensions;
@@ -15,7 +16,16 @@ namespace Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Minions;
 
 public class BattlegroundsMinionsViewModel : ViewModel
 {
-	private static BattlegroundsDb Db => BattlegroundsDbSingleton.Instance;
+	private BattlegroundsDb Db => IsPreLobby ? BattlegroundsDbSingleton.Instance : BattlegroundsDbSingleton.Current;
+
+	public void OnMinionPoolChanged()
+	{
+		OnPropertyChanged(nameof(Groups));
+		OnPropertyChanged(nameof(MinionTypeButtons));
+		UpdateTierButtons();
+		OnPropertyChanged(nameof(UnavailableRaces));
+		OnPropertyChanged(nameof(UnavailableMinionTypesVisibility));
+	}
 
 	public IEnumerable<Race>? AvailableRaces
 	{
@@ -49,7 +59,7 @@ public class BattlegroundsMinionsViewModel : ViewModel
 				ActiveMinionType = null;
 				ActiveMinionKeyword = null;
 			}
-			OnPropertyChanged(nameof(TierButtons));
+			UpdateTierButtons();
 			OnPropertyChanged(nameof(KeywordButtons));
 			OnPropertyChanged(nameof(Groups));
 			OnPropertyChanged(nameof(UnavailableMinionTypesVisibility));
@@ -67,7 +77,7 @@ public class BattlegroundsMinionsViewModel : ViewModel
 				ActiveTier = null;
 				ActiveMinionKeyword = null;
 			}
-			OnPropertyChanged(nameof(TierButtons));
+			UpdateTierButtons();
 			OnPropertyChanged(nameof(KeywordButtons));
 			OnPropertyChanged(nameof(MinionTypeButtons));
 			OnPropertyChanged(nameof(IsFilterButtonVisible));
@@ -88,7 +98,7 @@ public class BattlegroundsMinionsViewModel : ViewModel
 				ActiveMinionType = null;
 				ActiveTier = null;
 			}
-			OnPropertyChanged(nameof(TierButtons));
+			UpdateTierButtons();
 			OnPropertyChanged(nameof(KeywordButtons));
 			OnPropertyChanged(nameof(IsFilterButtonVisible));
 			OnPropertyChanged(nameof(IsExtraFilterSelected));
@@ -124,7 +134,7 @@ public class BattlegroundsMinionsViewModel : ViewModel
 		{
 			SetProp(value);
 			OnPropertyChanged(nameof(AvailableTiers));
-			OnPropertyChanged(nameof(TierButtons));
+			UpdateTierButtons();
 			OnPropertyChanged(nameof(KeywordButtons));
 			OnPropertyChanged(nameof(Groups));
 		}
@@ -174,20 +184,47 @@ public class BattlegroundsMinionsViewModel : ViewModel
 	public void UpdateTavernTier7Visibility()
 	{
 		OnPropertyChanged(nameof(AvailableTiers));
-		OnPropertyChanged(nameof(TierButtons));
+		UpdateTierButtons();
 		OnPropertyChanged(nameof(KeywordButtons));
 		OnPropertyChanged(nameof(Groups));
 		OnPropertyChanged(nameof(ShowTavernTier7));
 	}
 
-	public class TierButton
+	public class TierButton : ViewModel, ICardTooltip
 	{
-		public int Tier { get; set; }
-		public bool Active { get; set; }
-		public bool Available { get; set; }
-		public bool Faded { get; set; }
+		public int Tier { get; init; }
+		public bool Active
+		{
+			get => GetProp(false);
+			set
+			{
+				SetProp(value);
+				OnPropertyChanged(nameof(ShowDarkParadoxTooltip));
+			}
+		}
 
-		public int Size { get; set; }
+		public bool Available { get => GetProp(false); set => SetProp(value); }
+		public bool Faded { get => GetProp(false); set => SetProp(value); }
+
+		public Hearthstone.Card? DarkParadox
+		{
+			get => GetProp<Hearthstone.Card?>(null);
+			set
+			{
+				SetProp(value);
+				OnPropertyChanged(nameof(HasDarkParadox));
+				OnPropertyChanged(nameof(ShowDarkParadoxTooltip));
+			}
+		}
+
+		public bool HasDarkParadox => DarkParadox != null;
+
+		// the open tier already lists the Dark Paradox
+		public bool ShowDarkParadoxTooltip => HasDarkParadox && !Active;
+
+		public void UpdateTooltip(CardTooltipViewModel viewModel) => viewModel.Card = DarkParadox;
+
+		public int Size { get => GetProp(38); set => SetProp(value); }
 	}
 
 	// outside of a match no tier is gated behind an anomaly, hero power or trinket
@@ -195,22 +232,55 @@ public class BattlegroundsMinionsViewModel : ViewModel
 		? new List<int> { 1, 2, 3, 4, 5, 6, 7 }
 		: BattlegroundsUtils.GetAvailableTiers(Anomaly).ToList();
 
-	public List<TierButton> TierButtons
+	private List<TierButton>? _tierButtons;
+
+	public List<TierButton> TierButtons => _tierButtons ??= CreateTierButtons();
+
+	private List<int> VisibleTiers
 	{
 		get
 		{
 			var tiers = Enumerable.Range(1, 6).ToList();
-			var shouldShowTier7 = AvailableTiers.Contains(7) || ShowTavernTier7;
-			if(shouldShowTier7)
+			if(AvailableTiers.Contains(7) || ShowTavernTier7)
 				tiers.Add(7);
-			return tiers.Select(x => new TierButton()
-			{
-				Tier = x,
-				Active = x == ActiveTier,
-				Available = AvailableTiers.Contains(x),
-				Faded = (ActiveTier != null && ActiveTier != x) || IsExtraFilterSelected,
-				Size = shouldShowTier7 ? 33 : 38
-			}).ToList();
+			return tiers;
+		}
+	}
+
+	private List<TierButton> CreateTierButtons()
+	{
+		var buttons = VisibleTiers.Select(tier => new TierButton { Tier = tier }).ToList();
+		ApplyTierButtonState(buttons);
+		return buttons;
+	}
+
+	// replacing the buttons would recreate the one under the mouse, which drops its hover state and tooltip
+	private void UpdateTierButtons()
+	{
+		if(_tierButtons == null || !_tierButtons.Select(x => x.Tier).SequenceEqual(VisibleTiers))
+		{
+			_tierButtons = null;
+			OnPropertyChanged(nameof(TierButtons));
+			return;
+		}
+		ApplyTierButtonState(_tierButtons);
+	}
+
+	private void ApplyTierButtonState(List<TierButton> buttons)
+	{
+		var darkParadox = Db.DarkParadox;
+		var darkParadoxTier = Db.DarkParadoxTier;
+		var availableTiers = AvailableTiers;
+		foreach(var button in buttons)
+		{
+			button.Active = button.Tier == ActiveTier;
+			button.Available = availableTiers.Contains(button.Tier);
+			button.Faded = (ActiveTier != null && ActiveTier != button.Tier) || IsExtraFilterSelected;
+			if(darkParadoxTier != button.Tier)
+				button.DarkParadox = null;
+			else if(button.DarkParadox?.DbfId != darkParadox?.DbfId)
+				button.DarkParadox = darkParadox;
+			button.Size = buttons.Count == 7 ? 33 : 38;
 		}
 	}
 
@@ -258,6 +328,7 @@ public class BattlegroundsMinionsViewModel : ViewModel
 				.Where(x => x != Race.INVALID && x != Race.ALL) // Don't show ALL
 				.OrderBy(x => HearthDbConverter.GetLocalizedRace(x) ?? string.Empty)
 				.ToList();
+			races.Add(Race.ALL);
 			races.Add(Race.INVALID); // Other
 			races.Add((Race)(-1)); // Spells
 			races.Add((Race)(-2)); // Buddies
@@ -306,6 +377,18 @@ public class BattlegroundsMinionsViewModel : ViewModel
 
 		public bool IsInspirationEnabled { get; set; }
 
+	}
+
+	// outside of a match any game can roll a Dark Paradox, so its tier is never known
+	private Hearthstone.Card? UnknownDarkParadox
+	{
+		get
+		{
+			const string darkParadoxId = HearthDb.CardIds.NonCollectible.Neutral.DarkParadox;
+			if(!IsPreLobby)
+				return Db.DarkParadox is { Id: darkParadoxId } darkParadox ? darkParadox : null;
+			return HearthDb.Cards.All.TryGetValue(darkParadoxId, out var card) ? new Hearthstone.Card(card, true) : null;
+		}
 	}
 
 	public IEnumerable<CardGroup> Groups
@@ -418,6 +501,18 @@ public class BattlegroundsMinionsViewModel : ViewModel
 						MinionType = minionType,
 						GroupedByMinionType = true,
 						Cards = cards,
+						IsInspirationEnabled = IsInspirationEnabled,
+					});
+				}
+
+				if(minionType == Race.ALL && UnknownDarkParadox is { } darkParadox)
+				{
+					groups.Insert(0, new CardGroup
+					{
+						Tier = 0,
+						MinionType = minionType,
+						GroupedByMinionType = true,
+						Cards = new[] { darkParadox },
 						IsInspirationEnabled = IsInspirationEnabled,
 					});
 				}

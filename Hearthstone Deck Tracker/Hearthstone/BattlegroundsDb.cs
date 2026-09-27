@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Hearthstone_Deck_Tracker.Utility.Assets;
+using HearthMirror.Objects;
 
 namespace Hearthstone_Deck_Tracker.Hearthstone;
 
@@ -36,6 +37,107 @@ public class BattlegroundsDb
 	internal BattlegroundsDb(RemoteData.MetaPeriod? metaPeriod)
 	{
 		Update(metaPeriod);
+	}
+
+	private BattlegroundsDb(BattlegroundsMinionPool pool, BattlegroundsDb fallback)
+	{
+		Update(pool, fallback);
+	}
+
+	/// <summary>
+	/// Builds a database for the pool the game server sent for the current match. It is already specific to
+	/// the game mode, so isDuos is ignored by all queries. Buddies are not part of the pool and are taken
+	/// from the fallback.
+	/// </summary>
+	public static BattlegroundsDb FromMinionPool(BattlegroundsMinionPool pool, BattlegroundsDb fallback) => new(pool, fallback);
+
+	private readonly HashSet<int> _bannedDbfIds = new();
+
+	public bool IsBanned(int dbfId) => _bannedDbfIds.Contains(dbfId);
+
+	/// <summary>
+	/// The Dark Paradox in the minion pool, which rolls a different Dark Gift, stats and tier each game.
+	/// </summary>
+	public Card? DarkParadox { get; private set; }
+
+	public int? DarkParadoxTier { get; private set; }
+
+	private static bool IsDarkParadox(HearthDb.Card dbCard)
+	{
+		if(!Cards.All.TryGetValue(HearthDb.CardIds.NonCollectible.Neutral.DarkParadox, out var darkParadox))
+			return false;
+		return dbCard.DbfId == darkParadox.DbfId
+			|| dbCard.Entity.GetTag(GameTag.BACON_EVOLUTION_CARD_ID) == darkParadox.DbfId;
+	}
+
+	private static readonly Dictionary<GameTag, Race> SubsetTagRaces = new()
+	{
+		{ GameTag.BACON_SUBSET_BEAST, Race.BEAST },
+		{ GameTag.BACON_SUBSET_DEMON, Race.DEMON },
+		{ GameTag.BACON_SUBSET_DRAGON, Race.DRAGON },
+		{ GameTag.BACON_SUBSET_ELEMENTALS, Race.ELEMENTAL },
+		{ GameTag.BACON_SUBSET_MECH, Race.MECHANICAL },
+		{ GameTag.BACON_SUBSET_MURLOC, Race.MURLOC },
+		{ GameTag.BACON_SUBSET_NAGA, Race.NAGA },
+		{ GameTag.BACON_SUBSET_PIRATE, Race.PIRATE },
+		{ GameTag.BACON_SUBSET_QUILLBOAR, Race.QUILBOAR },
+		{ GameTag.BACON_SUBSET_UNDEAD, Race.UNDEAD },
+		{ GameTag.BACON_SUBSET_ABERRATION, Race.ABERRATION },
+	};
+
+	private void Update(BattlegroundsMinionPool pool, BattlegroundsDb fallback)
+	{
+		var activeRaces = pool.ActiveMinionTypes.Cast<Race>().ToHashSet();
+		Races.UnionWith(fallback.Races);
+		Races.UnionWith(activeRaces);
+		Races.Add(Race.INVALID);
+		Races.Add(Race.ALL);
+
+		foreach(var entry in pool.Cards)
+		{
+			if(!Cards.AllByDbfId.TryGetValue(entry.DbfId, out var dbCard))
+				continue;
+			var card = new Card(dbCard, true);
+			if(entry.Banned)
+			{
+				_bannedDbfIds.Add(entry.DbfId);
+				card.Count = 0;
+			}
+			// prefer this game's variant over the generic card, as only the variant knows the Dark Gift
+			else if(IsDarkParadox(dbCard) && (DarkParadox == null || DarkParadox.Id == HearthDb.CardIds.NonCollectible.Neutral.DarkParadox))
+			{
+				DarkParadox = card;
+				DarkParadoxTier = entry.Tier;
+			}
+
+			if(entry.CardType == (int)CardType.BATTLEGROUND_SPELL)
+			{
+				if(!_spellsByTier.ContainsKey(entry.Tier))
+					_spellsByTier[entry.Tier] = new List<Card>();
+				_spellsByTier[entry.Tier].Add(card);
+				continue;
+			}
+
+			// match the in-game minion gallery, which also lists a minion under active tribes it is a subset of
+			var races = entry.MinionTypes.Cast<Race>().ToHashSet();
+			foreach(var subset in SubsetTagRaces)
+			{
+				if(activeRaces.Contains(subset.Value) && dbCard.Entity.GetTag(subset.Key) > 0)
+					races.Add(subset.Value);
+			}
+
+			if(!_cardsByTier.ContainsKey(entry.Tier))
+				_cardsByTier[entry.Tier] = new Dictionary<Race, List<Card>>();
+			foreach(var race in races)
+			{
+				if(!_cardsByTier[entry.Tier].ContainsKey(race))
+					_cardsByTier[entry.Tier][race] = new List<Card>();
+				_cardsByTier[entry.Tier][race].Add(card);
+			}
+		}
+
+		foreach(var tier in fallback._buddiesByTier)
+			_buddiesByTier[tier.Key] = tier.Value;
 	}
 
 	private class TagLookup
@@ -206,73 +308,49 @@ public class BattlegroundsDb
 
 	public List<Card> GetCards(int tier, BattlegroundsKeyword keyword, IEnumerable<Race>? races, bool isDuos)
 	{
-		var availableCards = GetCardsByRaces(races?.ToList() ?? new List<Race>(), isDuos);
-		var cardsByTier = availableCards
-			.GroupBy(card => card.GetTag(GameTag.TECH_LEVEL))
-			.ToDictionary(
-				group => group.Key,
-				group => group.ToList()
-			);
-		return GetFilteredCardsByTierAndKeyword(cardsByTier, tier, keyword).ToList();
-	}
-
-	private List<Card> GetFilteredCardsByTierAndKeyword(Dictionary<int,List<Card>> cardsByTier, int tier,
-		BattlegroundsKeyword keyword)
-	{
-		if (!cardsByTier.TryGetValue(tier, out var cards))
-			return new List<Card>();
-
-		return cards
+		var raceList = races?.ToList() ?? new List<Race>();
+		return GetCardsByRaces(raceList, isDuos, tier)
 			.Where(card => keyword.Matches(card.GetTag, card.EnglishText))
 			.Distinct()
 			.ToList();
 	}
 
+	/// <summary>
+	/// The cards that can be offered for the given races. Unlike the display queries, this leaves out banned cards.
+	/// </summary>
 	public List<Card> GetCardsByRaces(IReadOnlyCollection<Race> races, bool isDuos)
+		=> GetCardsByRaces(races, isDuos, null).Where(card => !IsBanned(card.DbfId)).ToList();
+
+	private IEnumerable<Card> GetCardsByRaces(IReadOnlyCollection<Race> races, bool isDuos, int? onlyTier)
 	{
-		var cards = new List<Card>();
-
-		foreach (var tier in _cardsByTier.Values)
+		var exclusiveCardsByTier = isDuos ? _duosExclusiveCardsByTier : _solosExclusiveCardsByTier;
+		foreach(var cardsByTier in new[] { _cardsByTier, exclusiveCardsByTier })
 		{
-			foreach (var race in races)
+			foreach(var tier in cardsByTier)
 			{
-				if (tier.TryGetValue(race, out var tierCards))
+				if(onlyTier is int t && tier.Key != t)
+					continue;
+				foreach(var race in races)
 				{
-					cards.AddRange(tierCards);
+					if(tier.Value.TryGetValue(race, out var cards))
+					{
+						foreach(var card in cards)
+							yield return card;
+					}
 				}
 			}
 		}
-
-		foreach (var tier in isDuos ? _duosExclusiveCardsByTier.Values : _solosExclusiveCardsByTier.Values)
-		{
-			foreach (var race in races)
-			{
-				if (tier.TryGetValue(race, out var exclusiveCards))
-				{
-					cards.AddRange(exclusiveCards);
-				}
-			}
-		}
-
-		return cards;
 	}
 
-	public List<Card> GetSpells(bool isDuos)
+	/// <summary>
+	/// The spells that can be offered. Unlike the display queries, this leaves out banned spells.
+	/// </summary>
+	public List<Card> GetSpells(bool isDuos) => GetAllSpells(isDuos).Where(card => !IsBanned(card.DbfId)).ToList();
+
+	private IEnumerable<Card> GetAllSpells(bool isDuos)
 	{
-		var allSpells = new List<Card>();
-
-		foreach (var tierEntry in _spellsByTier)
-		{
-			allSpells.AddRange(tierEntry.Value);
-		}
-
-		var exclusiveSpellsDict = isDuos ? _duosExclusiveSpellsByTier : _solosExclusiveSpellsByTier;
-		foreach (var tierEntry in exclusiveSpellsDict)
-		{
-			allSpells.AddRange(tierEntry.Value);
-		}
-
-		return allSpells;
+		var exclusiveSpellsByTier = isDuos ? _duosExclusiveSpellsByTier : _solosExclusiveSpellsByTier;
+		return _spellsByTier.Values.Concat(exclusiveSpellsByTier.Values).SelectMany(x => x);
 	}
 
 	public List<Card> GetSpells(int tier, bool isDuos)
@@ -290,24 +368,7 @@ public class BattlegroundsDb
 	}
 
 	public List<Card> GetSpells(BattlegroundsKeyword keyword, bool isDuos)
-	{
-		var availableSpells = new List<Card>();
-		foreach(var card in _spells)
-		{
-			var duosExclusive = card.Entity.GetTag(GameTag.IS_BACON_DUOS_EXCLUSIVE);
-
-			if(duosExclusive > 0 && isDuos)
-				continue;
-			if(duosExclusive < 0 && !isDuos)
-				continue;
-
-			if(keyword.Matches(card.Entity.GetTag, card.GetLocText(Locale.enUS)))
-			{
-				availableSpells.Add(new Card(card, true));
-			}
-		}
-		return availableSpells;
-	}
+		=> GetAllSpells(isDuos).Where(card => keyword.Matches(card.GetTag, card.EnglishText)).ToList();
 
 	public List<Card> GetBuddies(int tier, bool isDuos)
 	{

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using HearthDb.Enums;
 using Hearthstone_Deck_Tracker.Controls.Overlay;
 using Hearthstone_Deck_Tracker.Hearthstone;
+using Hearthstone_Deck_Tracker.Utility;
 using Hearthstone_Deck_Tracker.Utility.Analytics;
 using Hearthstone_Deck_Tracker.Utility.Logging;
 using static HearthDb.CardIds;
@@ -40,7 +41,6 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 		internal static int ThreadCount => Environment.ProcessorCount / 2;
 
 		private readonly GameV2 _game;
-		private readonly Random _rnd = new Random();
 
 		private static BobsBuddyPanel BobsBuddyDisplay => Core.Overlay.BobsBuddyDisplay;
 		private static bool ReportErrors
@@ -55,10 +55,6 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 		}
 
 		private Input? _input;
-
-		// True while the current Battlegrounds combat contains a Dr. Boom's Monster, so the per-HEALTH-change reborn
-		// detection in TagChangeActions can skip the entity lookup for the (vast majority of) combats without one.
-		internal static bool CurrentCombatHasDrBoomsMonster;
 
 		// True in games where an opponent Malorne can be summoned during the current combat (the Bring in the Buddies anomaly)
 		internal static bool CurrentCombatMayHaveOpponentMalorne;
@@ -874,6 +870,9 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 
 			inputPlayer.DeathrattleCounter = ReadPlayerCounter((GameTag)4639);   // direct or transfer
 
+			inputPlayer.VolumizerAtkBuff = ReadPlayerCounter((GameTag)4468);   // direct or transfer
+			inputPlayer.VolumizerHealthBuff = ReadPlayerCounter((GameTag)4469);   // direct or transfer
+
 			var pHaunted = playerAttached.FirstOrDefault(x => x.CardId == NonCollectible.Neutral.HauntedCarapace_HauntedCarapacePlayerEnchantDnt);
 			if(pHaunted != null)
 			{
@@ -963,11 +962,6 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 
 			_input = input;
 			_turn = turn;
-
-			// Flag checking for Dr. Boom's Monster (to optimize redundantly checking in TagChangeAction)
-			CurrentCombatHasDrBoomsMonster =
-				input.Player.Side.Concat(input.Opponent.Side).Any(m => m.CardID == NonCollectible.Neutral.DrBoomsMonster || m.CardID == NonCollectible.Neutral.DrBoomsMonster_DrBoomsMonster1)
-				|| input.Player.Hand.Concat(input.Opponent.Hand).Any(h => h.Id == NonCollectible.Neutral.DrBoomsMonster || h.Id == NonCollectible.Neutral.DrBoomsMonster_DrBoomsMonster1);
 
 			// Flag checking it's possible to summon Malorne during combat (to optimize redundantly checking in TagChangeAction).
 			CurrentCombatMayHaveOpponentMalorne = input.Anomaly?.CardID == NonCollectible.Neutral.BringInTheBuddies;
@@ -1420,30 +1414,6 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 				}
 			}
 
-			await TryRerun();
-		}
-
-		internal async void UpdateDrBoomsMonsterReborn(int sourceEntityId, int rebornMaxHealth, bool isPlayerMinion)
-		{
-			if(_input == null || !UpdateRevealedEntityValidStates)
-				return;
-
-			// We need to know the magnetized count when a Dr. Boom's Monster is reborn
-			var targetPlayer = isPlayerMinion ? _input.Player : _input.Opponent;
-			if(targetPlayer.MagnetizeCounter != null)
-				return;
-
-			var source = targetPlayer.Side.FirstOrDefault(m => m.game_id == sourceEntityId
-				&& (m.CardID == NonCollectible.Neutral.DrBoomsMonster || m.CardID == NonCollectible.Neutral.DrBoomsMonster_DrBoomsMonster1));
-			if(source == null)
-				return;
-
-			var statsGrantedPerMagnetize = source.golden ? 4 : 2;
-			var count = (rebornMaxHealth - statsGrantedPerMagnetize) / statsGrantedPerMagnetize;
-			if(count <= 0)
-				return;
-
-			targetPlayer.MagnetizeCounter = count;
 			await TryRerun();
 		}
 
@@ -2103,7 +2073,7 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 			if (IsIncorrectCombatResult(result))
 			{
 				terminalCase = true;
-				if (!DidReconnect && ReportErrors && metricSampling > 0 && _rnd.NextDouble() < metricSampling)
+				if (!DidReconnect && ReportErrors && Sampling.ShouldSample(metricSampling))
 					AlertWithLastInputOutput(result.ToString());
 			}
 
@@ -2118,7 +2088,7 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 				}
 
 				terminalCase = true;
-				if(!DidReconnect && ReportErrors && metricSampling > 0 && _rnd.NextDouble() < metricSampling)
+				if(!DidReconnect && ReportErrors && Sampling.ShouldSample(metricSampling))
 					AlertWithLastInputOutput(lethalResult.ToString());
 			}
 
