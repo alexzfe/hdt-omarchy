@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Hearthstone_Deck_Tracker.Utility;
 using Hearthstone_Deck_Tracker.Utility.Particles;
 
 namespace Hearthstone_Deck_Tracker.Controls.Overlay.Arena;
@@ -19,7 +20,7 @@ public partial class ParticleEmitter
 
 	private static void PropertyChangedCallback(DependencyObject d, DependencyPropertyChangedEventArgs e)
 	{
-		if(d is not ParticleEmitter { IsInitialized: true } emitter)
+		if(d is not ParticleEmitter { IsInitialized: true, Content: not null } emitter)
 			return;
 		emitter.InitParticleSystems((List<Brush>)e.NewValue);
 	}
@@ -64,6 +65,14 @@ public partial class ParticleEmitter
 		SetValue(ParticleColorsProperty, new List<Brush>());
 
 		InitializeComponent();
+		if(Wine.IsWine)
+		{
+			// Under Wine (seen with the software renderer HDT forces on Intel GPUs) this Viewport3D stops
+			// WPF's render loop: the overlay stops drawing for good once a top-rated arena pick
+			// shows the embers. Drop the 3D scene, the plaque renders fine without it.
+			Content = null;
+			return;
+		}
 		_timer.Tick += OnTick;
 	}
 
@@ -74,6 +83,8 @@ public partial class ParticleEmitter
 
 	private void ParticleEmitter_OnLoaded(object sender, RoutedEventArgs e)
 	{
+		if(Content == null)
+			return;
 		InitParticleSystems(ParticleColors);
 		_lastTick = Environment.TickCount;
 		_timer.Start();

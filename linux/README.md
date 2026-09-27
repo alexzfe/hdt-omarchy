@@ -26,6 +26,8 @@ the `windows-build` CI job builds and tests on Windows to keep it that way.
 - **Wineserver outside the sandbox** — `linux/hdt-wineserver` and `linux/launch-battlenet.in`, so HDT keeps
   reading the game after Battle.net restarts (see [One wineserver outside the sandbox](#one-wineserver-outside-the-sandbox)).
 - **Updating** — `linux/update.sh`, run automatically by `launch-hdt` before the tracker starts (see [Updating](#updating)).
+- **Arena overlay freeze** — the Arena draft ember effect is disabled under Wine because it stops the overlay
+  drawing (see [Arena pick overlay froze under Wine](#arena-pick-overlay-froze-under-wine)).
 
 ## Requirements
 
@@ -313,6 +315,39 @@ Under Wine's X11 driver HDT raises the overlay again without activating it
 the Win32 z-order and never restacks the X window. It runs when the pointer enters an overlay button,
 after the game window moves or resizes, and when the game regains focus. It is skipped while the
 overlay is Wine's active window, the condition that would make Wine hand it to the window manager.
+
+## Arena pick overlay froze under Wine
+
+**Symptom (2026-09-27).** In an Arena draft the Arenasmith overlay showed its numbers for one decision
+(the hero pick, or the first card pick) and then stayed on them while the game moved on to new cards.
+Nothing brought it back. At some point HDT's "Crash Report" dialog opened, blank white and behind the
+game, and HDT exited with the game.
+
+**What it was not.** The tracker's side kept working: with extra logging, every pick showed the new
+choices arriving from the game and Arenasmith scores coming back for all three cards. The numbers were
+computed, they just never reached the screen.
+
+**Cause.** WPF stopped drawing the overlay window. The crash report (`Crash Reports/` in the install
+directory) was `COMException 0x88980406` (WPF's "render thread failure") at
+`HwndTarget.UpdateWindowPos -> DUCE.Channel.SyncFlush`, which is only where the failure surfaces. A
+`WINEDEBUG=+win` trace showed WPF's render thread calling `NtUserUpdateLayeredWindow` for the overlay
+many times a second and then never again, right after the first card-pick stats were drawn; `winedbg`
+showed that thread idle in `WaitForSingleObject` inside `wpfgfx_v0400`, with the UI thread still alive.
+The trigger is `Controls/Overlay/Arena/ParticleEmitter`: a `Viewport3D` ember effect, animated at 60 fps,
+on plaques of top-rated (level 5) picks. It is the only 3D content in HDT, and HDT forces WPF's software
+renderer on Intel GPUs. Under Wine that 3D scene stops WPF's render loop for good.
+
+**Fix.** Under Wine, `ParticleEmitter` drops its `Viewport3D` (`Content = null`) and never starts its
+timer, so the plaques render without the embers. Confirmed with the real game: the numbers update on
+every pick.
+
+**Diagnosis notes**, for the next rendering problem:
+- A `WINEDEBUG=+seh` trace contains every HDT log line (HDT writes them with `OutputDebugString`, which
+  Wine traces as `DBG_PRINTEXCEPTION`), so they serve as timestamps within the trace.
+- `NtUserUpdateLayeredWindow` lines in a `+win` trace show whether WPF is still presenting the overlay.
+- `winedbg` from the host Proton (`WINEPREFIX=~/Games/battlenet/pfx .../files/bin/wine winedbg`, then
+  `info proc`, `attach 0x<pid>`, `bt all`, `detach`) works because the wineserver runs on the host
+  (see [One wineserver outside the sandbox](#one-wineserver-outside-the-sandbox)).
 
 ## Known issues
 
