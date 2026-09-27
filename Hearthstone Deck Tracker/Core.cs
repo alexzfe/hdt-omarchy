@@ -148,6 +148,7 @@ namespace Hearthstone_Deck_Tracker
 				PollingWatcher.SetEventContext(syncContext);
 			else
 				Log.Warn("No SynchronizationContext, watcher events will fire on pool threads");
+			PollingWatcher.TickFailed += (watcher, ex) => Log.Error($"{watcher} poll failed: {ex}");
 			Reflection.LogDebugMessage += msg => Log.Debug("HearthMirror RPC[client]: " + msg);
 			Reflection.LogMessage += msg => Log.Info("HearthMirror RPC [client]: " + msg);
 

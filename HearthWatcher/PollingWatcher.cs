@@ -16,6 +16,10 @@ public abstract class PollingWatcher
 		_eventThreadId = ctx != null ? Environment.CurrentManagedThreadId : -1;
 	}
 
+	// a tick that throws is reported here and the loop keeps going; letting it escape would fault
+	// the loop task and leave _loop set, so Run() could never restart the watcher
+	public static event Action<string, Exception>? TickFailed;
+
 	private readonly object _stateLock = new();
 	private readonly int _delay;
 	private bool _watch;
@@ -60,7 +64,17 @@ public abstract class PollingWatcher
 				await Task.Delay(_delay).ConfigureAwait(false);
 				if(!Watching)
 					break;
-				if(await TickAsync().ConfigureAwait(false))
+				bool done;
+				try
+				{
+					done = await TickAsync().ConfigureAwait(false);
+				}
+				catch(Exception ex)
+				{
+					TickFailed?.Invoke(GetType().Name, ex);
+					done = false;
+				}
+				if(done)
 				{
 					Stop();
 					break;
