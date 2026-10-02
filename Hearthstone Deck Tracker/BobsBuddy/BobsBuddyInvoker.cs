@@ -841,7 +841,8 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 
 			inputPlayer.FriendlyMinionsDeadLastCombatCounter = ReadPlayerCounter((GameTag)2717);   // direct or transfer
 
-			inputPlayer.BattlecryCounter = ReadPlayerCounter((GameTag)3236);   // direct or transfer
+			// GameTag 3236 is Battlecries "played", whereas GameTag 3873 is Battlecries Triggered (correct one)
+			inputPlayer.BattlecryCounter = ReadPlayerCounter((GameTag)3873);   // direct or transfer
 
 			Log.Info($"pPirates={inputPlayer.PiratesSummonCounter}, pBeasts={inputPlayer.BeastsSummonCounter}, pDeadLastCombat={inputPlayer.FriendlyMinionsDeadLastCombatCounter}, pBattlecry={inputPlayer.BattlecryCounter}, friendly={friendly}");
 
@@ -869,6 +870,9 @@ namespace Hearthstone_Deck_Tracker.BobsBuddy
 			inputPlayer.TavernSpellCounter = ReadPlayerCounter((GameTag)3088);   // direct or transfer
 
 			inputPlayer.DeathrattleCounter = ReadPlayerCounter((GameTag)4639);   // direct or transfer
+
+			// Number of cards discarded
+			inputPlayer.DiscardCounter = ReadPlayerCounter((GameTag)4768);   // direct or transfer
 
 			inputPlayer.VolumizerAtkBuff = ReadPlayerCounter((GameTag)4468);   // direct or transfer
 			inputPlayer.VolumizerHealthBuff = ReadPlayerCounter((GameTag)4469);   // direct or transfer

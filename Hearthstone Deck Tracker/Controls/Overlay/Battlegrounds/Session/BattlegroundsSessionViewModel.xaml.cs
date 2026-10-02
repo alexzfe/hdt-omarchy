@@ -151,8 +151,36 @@ public class BattlegroundsSessionViewModel : ViewModel
 
 	private void UpdateMinionTypes()
 	{
+		var availableRaces = BattlegroundsUtils.GetAvailableRaces();
+		SetMinionTypes(availableRaces);
+		if(availableRaces == null && Core.Game.IsBattlegroundsMatch && !Core.Game.IsInMenu)
+			SetMinionTypesOnceReadable().Forget();
+	}
+
+	private async Task SetMinionTypesOnceReadable()
+	{
+		try
+		{
+			if(await BattlegroundsUtils.WaitForAvailableRaces() == null)
+				return;
+		}
+		catch(OperationCanceledException)
+		{
+			return;
+		}
+
+		// the match is over, so leave the recap to the menu's own updates
+		if(Core.Game.IsInMenu)
+			return;
+
+		// read again rather than use the result, so a newer game only ever gets its own races
+		SetMinionTypes(BattlegroundsUtils.GetAvailableRaces());
+	}
+
+	private void SetMinionTypes(HashSet<Race>? races)
+	{
 		var allRaces = _db.Races.Where(x => x != Race.INVALID && x != Race.ALL).ToList();
-		var availableRaces = BattlegroundsUtils.GetAvailableRaces()?.ToList() ?? allRaces;
+		var availableRaces = races?.ToList() ?? allRaces;
 		var unavailableRaces = allRaces.Where(x => !availableRaces.Contains(x)).ToList();
 
 		var validMinionTypes = unavailableRaces.Count() >= 5 && unavailableRaces.Count() != allRaces.Count();
@@ -187,11 +215,10 @@ public class BattlegroundsSessionViewModel : ViewModel
 
 	private async Task<BattlegroundsCompStats?> GetBattlegroundsCompStats()
 	{
-		var gameId = Core.Game.MetaData.ServerInfo?.GameHandle;
-		var userOwnsTier7 = HSReplayNetOAuth.AccountData?.IsTier7 ?? false;
-		var userHasTrials = Tier7Trial.RemainingTrials > 0;
+		if(!Core.Game.IsBattlegroundsMatch)
+			return null;
 
-		if(!userOwnsTier7 && !(userHasTrials || Tier7Trial.IsTrialForCurrentGameActive(gameId)))
+		if(!Tier7Trial.IsAvailable)
 			return null;
 
 		if(IsDuos)
@@ -204,9 +231,9 @@ public class BattlegroundsSessionViewModel : ViewModel
 	        return null;
 
 	    if(Remote.Config.Data?.Tier7?.Disabled ?? false)
-	        throw new CompositionStatsException("Tier 7 remotely disabled");
+	        throw new CompositionStatsException("Tier7 remotely disabled");
 
-	    var availableRaces = BattlegroundsUtils.GetAvailableRaces();
+	    var availableRaces = await BattlegroundsUtils.WaitForAvailableRaces();
 
 	    if(availableRaces == null)
 		    throw new CompositionStatsException("Unable to get available races");
@@ -221,17 +248,13 @@ public class BattlegroundsSessionViewModel : ViewModel
 	    if(compParams == null)
 			throw new CompositionStatsException("Unable to get API parameters");
 
-	    // Use a trial if we can
-	    string? token = null;
-	    if(!userOwnsTier7)
+	    var access = await Tier7Trial.GetAccess();
+	    if(access == null)
 	    {
-	        var acc = Reflection.Client.GetAccountId();
-	        token = acc != null ? await Tier7Trial.ActivateOrContinue(acc.Hi, acc.Lo, gameId) : null;
-	        if(!((Core.Game.GameEntity?.GetTag(GameTag.STEP) ?? 0) <= (int)Step.BEGIN_MULLIGAN) && token == null)
+	        if(!((Core.Game.GameEntity?.GetTag(GameTag.STEP) ?? 0) <= (int)Step.BEGIN_MULLIGAN))
 		        return null;
 
-	        if(token == null)
-	            throw new CompositionStatsException("Unable to get trial token");
+	        throw new CompositionStatsException("Unable to start Tier7 trial");
 	    }
 
 	#if(DEBUG)
@@ -239,13 +262,11 @@ public class BattlegroundsSessionViewModel : ViewModel
 	    Log.Debug($"Fetching Battlegrounds Hero Pick stats with parameters={json}...");
 	#endif
 
-	    // At this point the user either owns tier7 or has an active trial!
-
 	    BattlegroundsCompStats? compStats;
 	    try
 	    {
-		    compStats = token != null && !userOwnsTier7
-			    ?  await ApiWrapper.GetTier7CompStats(token, compParams)
+		    compStats = access.TrialToken is string token
+			    ? await ApiWrapper.GetTier7CompStats(token, compParams)
 			    : await HSReplayNetOAuth.MakeRequest(c => c.GetTier7CompStats(compParams)
 			);
 	    }
@@ -305,6 +326,10 @@ public class BattlegroundsSessionViewModel : ViewModel
 		try
 		{
 			battlegroundsCompStats = await statsTask;
+		}
+		catch(OperationCanceledException)
+		{
+			return;
 		}
 		catch(Exception e)
 		{
